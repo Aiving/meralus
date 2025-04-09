@@ -6,11 +6,11 @@ If you really plan to play this (and compile it yourself), replace all paths fro
 
 ### Binds
 
-Walking: `WASD`
-Jumping: `Space`
-Running: `Ctrl + W` (does not work with `S`)
-\[Debugging\] Toggle Wireframes: `T`
-\[Debugging\] Select a block under the player for debugging: `Ctrl + F`
+- Walking: `WASD`
+- Jumping: `Space`
+- Running: `Ctrl + W` (does not work with `S`)
+- \[Debugging\] Toggle Wireframes: `T`
+- \[Debugging\] Select a block under the player for debugging: `Ctrl + F`
 
 #### uhh???
 
