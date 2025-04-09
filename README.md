@@ -14,7 +14,7 @@ If you really plan to play this (and compile it yourself), replace all paths fro
 
 ### what does the `meralus` mean?
 
-`mera` is from Hindi, and `alus` is from Finnish.
+`mera` (`मेरा`) is `mine` in Hindi, and `alus` is `craft` in Finnish.
 
 YEAH, I'M GOOD AT NAMING THINGS.
 
