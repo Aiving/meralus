@@ -12,7 +12,7 @@ If you really plan to play this (and compile it yourself), replace all paths fro
 - \[Debugging\] Toggle Wireframes: `T`
 - \[Debugging\] Select a block under the player for debugging: `Ctrl + F`
 
-### what does the `meralus' mean?
+### what does the `meralus` mean?
 
 `mera` is from Hindi, and `alus` is from Finnish.
 
