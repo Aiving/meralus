@@ -18,6 +18,8 @@ If you really plan to play this (and compile it yourself), replace all paths fro
 
 YEAH, I'M GOOD AT NAMING THINGS.
 
+![img](https://c.tenor.com/KtlJSbd5-AUAAAAd/tenor.gif)
+
 #### uhh???
 
 lol weird physics (i'm suck at math (and shaders too))
