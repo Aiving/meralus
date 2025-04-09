@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.lints.clippy]
+all = "warn"
+nursery = "warn"
+pedantic = "warn"
+
+[workspace.dependencies]
+async-compression = { version = "0.4.22", features = ["zlib", "tokio"] }
+flate2 = { version = "1.1.1", features = ["zlib"] }
+meralus-meshing = { path = "./crates/meshing" }
+macroquad = { git = "https://github.com/not-fl3/macroquad.git", features = ["glam-serde"] }
+glam = { version = "0.27.0", features = ["serde"] }
+tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros", "fs", "sync", "parking_lot", "net", "io-util"] }
+noise = "0.9.0"

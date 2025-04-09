@@ -1,0 +1,14 @@
+[package]
+name = "meralus-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+macroquad = { workspace = true }
+async-compression = { workspace = true }
+meralus-meshing = { workspace = true }
+noise = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true
