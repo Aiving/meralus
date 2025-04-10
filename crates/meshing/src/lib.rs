@@ -1,8 +1,16 @@
-use glam::{IVec2, IVec3, Vec3};
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::unreadable_literal,
+    clippy::missing_errors_doc
+)]
+
+use glam::{IVec2, Vec3};
 use noise::{NoiseFn, Perlin};
 use std::{
     array,
-    io::{self, Read, Write},
+    io::{self, Read},
 };
 
 pub const CHUNK_SIZE: usize = 16;
@@ -50,6 +58,7 @@ impl Chunk {
         Ok(value)
     }
 
+    #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = Vec::new();
 
@@ -83,11 +92,13 @@ impl Chunk {
         }
     }
 
+    #[must_use]
     pub fn contains_position(&self, position: Vec3) -> bool {
         self.origin.x == (position.x.floor() as i32 >> 4)
             && self.origin.y == (position.z.floor() as i32 >> 4)
     }
 
+    #[must_use]
     pub fn get_block(&self, position: Vec3) -> Option<u8> {
         if !self.contains_position(position) {
             return None;
@@ -102,6 +113,7 @@ impl Chunk {
         if block_id == 0 { None } else { Some(block_id) }
     }
 
+    #[must_use]
     pub fn get_block_unchecked(&self, position: Vec3) -> Option<u8> {
         let x = (position.x.floor().rem_euclid(CHUNK_SIZE as f32)) as usize;
         let y = (position.y.floor() % CHUNK_HEIGHT as f32) as usize;
@@ -112,6 +124,7 @@ impl Chunk {
         if block_id == 0 { None } else { Some(block_id) }
     }
 
+    #[must_use]
     pub fn get_light_level(&self, position: Vec3) -> Option<u8> {
         if !self.contains_position(position) {
             return None;
@@ -128,11 +141,26 @@ impl Chunk {
         }
     }
 
+    #[must_use]
+    pub fn check_for_block(&self, position: Vec3) -> bool {
+        if self.contains_position(position) {
+            let x = (position.x.floor().rem_euclid(CHUNK_SIZE as f32)) as usize;
+            let y = (position.y.floor() % CHUNK_HEIGHT as f32) as usize;
+            let z = (position.z.floor().rem_euclid(CHUNK_SIZE as f32)) as usize;
+
+            self.blocks[y][z][x] != 0
+        } else {
+            false
+        }
+    }
+
+    #[must_use]
     pub fn get_sun_light(&self, position: Vec3) -> Option<u8> {
         self.get_light_level(position)
             .map(|level| (level >> 4) & 0xF)
     }
 
+    #[must_use]
     pub fn get_block_light(&self, position: Vec3) -> Option<u8> {
         self.get_light_level(position).map(|level| level & 0xF)
     }
@@ -165,7 +193,7 @@ impl Chunk {
                     })
                 })
             }),
-            light_levels: array::from_fn(|y| array::from_fn(|z| array::from_fn(|x| 0))),
+            light_levels: array::from_fn(|_| array::from_fn(|_| array::from_fn(|_| 0))),
         }
     }
 }

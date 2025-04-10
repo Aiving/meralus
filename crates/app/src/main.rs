@@ -2,61 +2,24 @@
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
     clippy::unreadable_literal
 )]
-
-mod block_shader {
-    use macroquad::{
-        miniquad::{ShaderMeta, UniformBlockLayout},
-        prelude::{ShaderSource, UniformDesc, UniformType},
-    };
-
-    pub const VERTEX: &str = include_str!("../shaders/block_vertex.glsl");
-    pub const FRAGMENT: &str = include_str!("../shaders/block_fragment.glsl");
-
-    pub fn attributes() -> Vec<UniformDesc> {
-        vec![
-            UniformDesc::new("position", UniformType::Float3),
-            UniformDesc::new("normal", UniformType::Float3),
-            UniformDesc::new("tex_coord", UniformType::Float2),
-            UniformDesc::new("tile_uv", UniformType::Float2),
-            UniformDesc::new("ambient_occlusion", UniformType::Float1),
-            UniformDesc::new("world", UniformType::Mat4),
-            UniformDesc::new("uniforms.view", UniformType::Mat4),
-            UniformDesc::new("mvp", UniformType::Mat4),
-            UniformDesc::new("uniforms.tile_size", UniformType::Float2),
-        ]
-    }
-}
 
 use std::{
     collections::{HashMap, hash_map::Entry},
     fs,
     ops::Range,
     path::{Path, PathBuf},
-    thread, vec,
+    vec,
 };
 
-use async_compression::tokio::write::ZlibEncoder;
 use macroquad::{
     color::hsl_to_rgb,
-    miniquad::{
-        gl::{
-            GL_BACK, GL_CULL_FACE, GL_CW, GL_FILL, GL_FRONT, GL_FRONT_AND_BACK, GL_LINE,
-            glCullFace, glEnable, glFrontFace, glPolygonMode,
-        },
-        window::screen_size,
-    },
+    miniquad::{gl, window::screen_size},
     prelude::*,
-    telemetry,
 };
 use meralus_meshing::{CHUNK_HEIGHT, CHUNK_SIZE, Chunk};
-use noise::core::value;
-use tokio::{
-    io::{AsyncWriteExt, BufWriter, Interest},
-    net::TcpStream,
-};
-// use glam::vec3;
 
 const MOVE_SPEED: f32 = 4.;
 const LOOK_SPEED: f32 = 0.1;
@@ -125,7 +88,7 @@ impl PlayerController {
             .is_some()
     }
 
-    fn handle_physics(&mut self, game: &Game, camera: &Camera3D, delta: f32) {
+    fn handle_physics(&mut self, game: &Game, delta: f32) {
         let direction = get_movement_direction();
 
         let (front, right, _) = calc_rotation_dirs(self.yaw, 0.0);
@@ -243,6 +206,15 @@ enum Axis {
 }
 
 impl Face {
+    const ALL: [Self; 6] = [
+        Self::Top,
+        Self::Bottom,
+        Self::Left,
+        Self::Right,
+        Self::Front,
+        Self::Back,
+    ];
+
     fn from_axis_value(axis: Axis, value: f32) -> Self {
         match (axis, value) {
             (Axis::X, 1.0) => Self::Right,
@@ -392,12 +364,12 @@ impl Face {
 
     const fn as_normal(self) -> Vec3 {
         match self {
-            Self::Top => vec3(0.0, 0.5, 0.0),
-            Self::Bottom => vec3(0.0, -0.5, 0.0),
-            Self::Left => vec3(-0.5, 0.0, 0.0),
-            Self::Right => vec3(0.5, 0.0, 0.0),
-            Self::Front => vec3(0.0, 0.0, 0.5),
-            Self::Back => vec3(0.0, 0.0, -0.5),
+            Self::Top => Vec3::Y,
+            Self::Bottom => Vec3::NEG_Y,
+            Self::Right => Vec3::X,
+            Self::Left => Vec3::NEG_X,
+            Self::Front => Vec3::Z,
+            Self::Back => Vec3::NEG_Z,
         }
     }
 }
@@ -434,11 +406,15 @@ struct Block {
     faces: Vec<(Face, Texture2D, Option<Color>)>,
 }
 
-impl Block {
-    const fn new(faces: Vec<(Face, Texture2D, Option<Color>)>) -> Self {
+impl FromIterator<(Face, Texture2D, Option<Color>)> for Block {
+    fn from_iter<I: IntoIterator<Item = (Face, Texture2D, Option<Color>)>>(iter: I) -> Self {
+        let faces = iter.into_iter().collect();
+
         Self { faces }
     }
+}
 
+impl Block {
     fn get_face_textures(&self, face: Face) -> Vec<(Texture2D, Option<Color>)> {
         self.faces
             .iter()
@@ -577,6 +553,11 @@ impl Game {
         chunk.get_block_unchecked(position)
     }
 
+    fn block_exists(&self, position: Vec3) -> bool {
+        self.find_chunk(position)
+            .is_some_and(|chunk| chunk.check_for_block(position))
+    }
+
     fn get_face_mesh(
         &self,
         face: Face,
@@ -588,9 +569,8 @@ impl Game {
         let uv = face.as_uv();
         let normal = face.as_normal();
 
-        let mut vertices: Vec<Vertex> = (0..4)
+        let vertices: Vec<Vertex> = (0..4)
             .map(|i| {
-                let ver_pos = position + vertices[i];
                 let [side1, side2, corner] = get_vertice_neighbours(
                     position,
                     vertices[i].y > 0.0,
@@ -599,21 +579,7 @@ impl Game {
                 )
                 .map(|pos| self.find_block(pos).is_some());
 
-                let mut ambient_occlusion = vertex_ao(side1, side2, corner);
-
-                if face == Face::Right
-                    && position.x == 11.0
-                    && position.y == 15.0
-                    && position.z == 15.0
-                {
-                    println!(
-                        "{i}: {:?} S1({side1}) S2({side2}) C({corner}) AO[{ambient_occlusion}]",
-                        vertices[i]
-                    );
-                    if vertices[i] == Vec3::X {
-                        ambient_occlusion = AMBIENT_OCCLUSION_VALUES[0];
-                    }
-                }
+                let ambient_occlusion = vertex_ao(side1, side2, corner);
 
                 let color = (WHITE.to_vec().xyz() * ambient_occlusion).extend(1.0);
 
@@ -650,12 +616,24 @@ impl Game {
         mesh
     }
 
+    fn bake_face(
+        &self,
+        position: IVec3,
+        face: Face,
+        texture: Texture2D,
+        color: Option<Color>,
+    ) -> BackedFace {
+        BackedFace {
+            position,
+            face,
+            mesh: self.get_face_mesh(face, position.as_vec3(), Some(texture), color),
+        }
+    }
+
     pub fn compute_world_mesh(&self) -> Vec<BackedFace> {
         let mut meshes = Vec::new();
 
         for chunk in self.chunks.values() {
-            println!("chunk: {:?}", chunk.origin);
-
             for y in 0..CHUNK_HEIGHT {
                 for z in 0..CHUNK_SIZE {
                     for x in 0..CHUNK_SIZE {
@@ -671,93 +649,11 @@ impl Game {
                             let position = ivec3(chunk.origin.x, 0, chunk.origin.y) * 16
                                 + ivec3(x as i32, y as i32, z as i32);
 
-                            if self.find_block(pos - Vec3::X).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Left) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Left,
-                                        mesh: self.get_face_mesh(
-                                            Face::Left,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
-                                }
-                            }
-
-                            if self.find_block(pos + Vec3::X).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Right) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Right,
-                                        mesh: self.get_face_mesh(
-                                            Face::Right,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
-                                }
-                            }
-
-                            if self.find_block(pos + Vec3::Y).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Top) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Top,
-                                        mesh: self.get_face_mesh(
-                                            Face::Top,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
-                                }
-                            }
-
-                            if self.find_block(pos - Vec3::Y).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Bottom) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Bottom,
-                                        mesh: self.get_face_mesh(
-                                            Face::Bottom,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
-                                }
-                            }
-
-                            if self.find_block(pos + Vec3::Z).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Front) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Front,
-                                        mesh: self.get_face_mesh(
-                                            Face::Front,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
-                                }
-                            }
-
-                            if self.find_block(pos - Vec3::Z).is_none() {
-                                for (texture, color) in block.get_face_textures(Face::Back) {
-                                    meshes.push(BackedFace {
-                                        position,
-                                        face: Face::Back,
-                                        mesh: self.get_face_mesh(
-                                            Face::Back,
-                                            pos,
-                                            Some(texture),
-                                            color,
-                                        ),
-                                    });
+                            for face in Face::ALL {
+                                if !self.block_exists(pos + face.as_normal()) {
+                                    for (texture, color) in block.get_face_textures(face) {
+                                        meshes.push(self.bake_face(position, face, texture, color));
+                                    }
                                 }
                             }
                         }
@@ -773,16 +669,14 @@ impl Game {
 fn dirt_block(game: &Game) -> Block {
     let dirt = game.get_texture("dirt").unwrap();
 
-    Block {
-        faces: vec![
-            (Face::Top, dirt.weak_clone(), None),
-            (Face::Bottom, dirt.weak_clone(), None),
-            (Face::Right, dirt.weak_clone(), None),
-            (Face::Left, dirt.weak_clone(), None),
-            (Face::Front, dirt.weak_clone(), None),
-            (Face::Back, dirt.weak_clone(), None),
-        ],
-    }
+    Block::from_iter([
+        (Face::Top, dirt.weak_clone(), None),
+        (Face::Bottom, dirt.weak_clone(), None),
+        (Face::Right, dirt.weak_clone(), None),
+        (Face::Left, dirt.weak_clone(), None),
+        (Face::Front, dirt.weak_clone(), None),
+        (Face::Back, dirt.weak_clone(), None),
+    ])
 }
 
 fn grass_block(game: &Game) -> Block {
@@ -793,20 +687,18 @@ fn grass_block(game: &Game) -> Block {
 
     let color = Color::from_hex(0x5fe366);
 
-    Block {
-        faces: vec![
-            (Face::Top, top.weak_clone(), Some(color)),
-            (Face::Bottom, dirt.weak_clone(), None),
-            (Face::Right, side.weak_clone(), None),
-            (Face::Left, side.weak_clone(), None),
-            (Face::Front, side.weak_clone(), None),
-            (Face::Back, side.weak_clone(), None),
-            (Face::Right, overlay.weak_clone(), Some(color)),
-            (Face::Left, overlay.weak_clone(), Some(color)),
-            (Face::Front, overlay.weak_clone(), Some(color)),
-            (Face::Back, overlay.weak_clone(), Some(color)),
-        ],
-    }
+    Block::from_iter([
+        (Face::Top, top.weak_clone(), Some(color)),
+        (Face::Bottom, dirt.weak_clone(), None),
+        (Face::Right, side.weak_clone(), None),
+        (Face::Left, side.weak_clone(), None),
+        (Face::Front, side.weak_clone(), None),
+        (Face::Back, side.weak_clone(), None),
+        (Face::Right, overlay.weak_clone(), Some(color)),
+        (Face::Left, overlay.weak_clone(), Some(color)),
+        (Face::Front, overlay.weak_clone(), Some(color)),
+        (Face::Back, overlay.weak_clone(), Some(color)),
+    ])
 }
 
 #[tokio::main]
@@ -825,34 +717,217 @@ async fn main() {
     //     println!("W ROT E BAL");
     // });
 
-    macroquad::Window::from_config(conf(), app());
+    macroquad::Window::from_config(conf(), app(Game::new(12723, 0..1, 0..1)));
 }
 
-fn intersect_ray_plane(
-    ray_origin: Vec3,
-    ray_direction: Vec3,
-    plane_normal: Vec3,
-    plane_point: Vec3,
-    t: &mut f32,
-) -> bool {
-    let denominator = plane_normal.dot(ray_direction);
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    translation: Vec3,
+    rotation: Quat,
+    scale: Vec3,
+}
 
-    if denominator.abs() < 1e-6 {
-        false
-    } else {
-        *t = plane_normal.dot(plane_point - ray_origin) / denominator;
-
-        *t >= 0.0
+impl Default for Transform {
+    fn default() -> Self {
+        Self {
+            translation: Vec3::default(),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::ONE,
+        }
     }
 }
 
-async fn app() {
-    // draw_texture_ex(texture, x, y, color, params);
-    set_default_filter_mode(FilterMode::Nearest);
+impl Transform {
+    pub fn set_rotation_x(&mut self, value: f32) {
+        self.rotation = Quat::from_axis_angle(Vec3::X, value) * self.rotation;
+    }
 
-    let debug_faces = true;
+    pub fn set_rotation_y(&mut self, value: f32) {
+        self.rotation = Quat::from_axis_angle(Vec3::Y, value) * self.rotation;
+    }
 
-    let mut game = Game::new(12723, 0..1, 0..1);
+    pub fn set_rotation_z(&mut self, value: f32) {
+        self.rotation = Quat::from_axis_angle(Vec3::Z, value) * self.rotation;
+    }
+
+    pub fn set_rotation(&mut self, x: f32, y: f32, z: f32) {
+        self.set_rotation_x(x);
+        self.set_rotation_y(y);
+        self.set_rotation_z(z);
+    }
+
+    pub const fn set_scale_x(&mut self, value: f32) {
+        self.scale.x = value;
+    }
+
+    pub const fn set_scale_y(&mut self, value: f32) {
+        self.scale.y = value;
+    }
+
+    pub const fn set_scale_z(&mut self, value: f32) {
+        self.scale.z = value;
+    }
+
+    pub const fn set_scale(&mut self, x: f32, y: f32, z: f32) {
+        self.set_scale_x(x);
+        self.set_scale_y(y);
+        self.set_scale_z(z);
+    }
+
+    pub fn set_translation_x(&mut self, value: f32) {
+        self.translation.x += value;
+    }
+
+    pub fn set_translation_y(&mut self, value: f32) {
+        self.translation.y += value;
+    }
+
+    pub fn set_translation_z(&mut self, value: f32) {
+        self.translation.z += value;
+    }
+
+    pub fn set_translation(&mut self, x: f32, y: f32, z: f32) {
+        self.set_translation_x(x);
+        self.set_translation_y(y);
+        self.set_translation_z(z);
+    }
+
+    #[must_use]
+    pub fn affine(&self) -> Affine3A {
+        println!("rotation: {}", self.rotation);
+
+        Affine3A::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
+    }
+}
+
+struct GameState {
+    current_block: Option<(u8, IVec3)>,
+}
+
+fn debug_face_vertices(game: &GameState, backed: &BackedFace, vertices: &mut Vec<Vertex>) {
+    if let Some((_, block_position)) = &game.current_block {
+        if &backed.position == block_position {
+            for vertice in &backed.mesh.vertices {
+                if !vertices.iter().any(|b| vertice.position == b.position) {
+                    vertices.push(*vertice);
+                }
+
+                draw_sphere(
+                    vertice.position,
+                    0.1,
+                    None,
+                    (vertice.position - backed.position.as_vec3()).as_color(),
+                );
+            }
+        }
+    }
+}
+
+fn debug_current_block_faces(game: &GameState, vertices: &[Vertex]) {
+    if let Some((_, block_position)) = game.current_block {
+        let vertices_count = vertices.len() as f32;
+        let height = (vertices_count + 2.0) * 12.0;
+
+        draw_rectangle(
+            screen_width() - 275.0,
+            screen_height() - height,
+            275.0,
+            height,
+            BLACK,
+        );
+
+        for (i, vertex) in vertices.iter().enumerate() {
+            let position = vertex.position - block_position.as_vec3();
+            let text = format!(
+                "{:5?} {:6?} {:?} ({}) AO: {}",
+                Face::from_axis_value(Axis::X, position.x),
+                Face::from_axis_value(Axis::Y, position.y),
+                Face::from_axis_value(Axis::Z, position.z),
+                position,
+                vertex.normal.w
+            );
+            let i = i as f32;
+            let measured = measure_text(&text, None, 16, 1.0);
+
+            draw_text(
+                &text,
+                screen_width() - measured.width - 12.0,
+                12.0f32.mul_add(-i, screen_height() - measured.height),
+                16.0,
+                (vertex.position - block_position.as_vec3()).as_color(),
+            );
+        }
+    }
+}
+
+fn debug_current_block(game: &Game, state: &mut GameState, camera: &Camera3D) {
+    if let Some((_, block_position)) = state.current_block {
+        for face in Face::ALL {
+            let normal = block_position.as_vec3() + (face.as_normal() / 2.0) + (Vec3::ONE / 2.0);
+
+            // for vertice in &backed.mesh.vertices {
+            //     if let Some(position) = camera.unproject_position(vertice.position) {
+            //         let text = vertice.position.to_string();
+            //         let measured = measure_text(&text, None, 16, 1.0);
+
+            //         draw_text(
+            //             &text,
+            //             position.x - (measured.width / 2.),
+            //             position.y,
+            //             16.0,
+            //             BLUE,
+            //         );
+            //     }
+            // }
+
+            if let Some((position, w)) = camera.unproject_position(normal) {
+                let text = format!("{face:?}");
+                let measured = measure_text(&text, None, 16, 1.0);
+
+                draw_text(
+                    &text,
+                    position.x - (measured.width / 2.),
+                    position.y,
+                    16.0,
+                    Color::from_vec((WHITE.to_vec().xyz() * ((15.0 - w) / 15.0)).extend(1.0)),
+                );
+            }
+        }
+
+        if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
+            state.current_block.take();
+        } else {
+            show_block_info(game, state, block_position.as_vec3());
+        }
+    }
+}
+
+fn show_block_info(game: &Game, state: &mut GameState, position: Vec3) {
+    if let Some(block) = game.find_block(position) {
+        let text = format!(
+            "Block: {}\nPosition: {}",
+            if block == 1 { "dirt" } else { "grass" },
+            position.as_ivec3()
+        );
+
+        let measured = measure_text(&text, None, 32, 1.0);
+
+        draw_multiline_text(
+            &text,
+            measured.width.mul_add(-0.6, screen_width()) - 12.0,
+            20.0,
+            32.0,
+            None,
+            RED,
+        );
+
+        if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
+            state.current_block = Some((block, position.as_ivec3()));
+        }
+    }
+}
+
+fn prepare(game: &mut Game) {
     let root = PathBuf::from("/home/aiving/dev/meralus/crates/app/resources/textures");
 
     game.load_texture("dirt", root.join("dirt.png"));
@@ -863,36 +938,19 @@ async fn app() {
         root.join("grass_block_side_overlay.png"),
     );
 
-    game.load_block(dirt_block(&game));
-    game.load_block(grass_block(&game));
+    game.load_block(dirt_block(game));
+    game.load_block(grass_block(game));
     game.find_chunk_mut(Vec3::ZERO).unwrap().blocks[16][2][2] = 2;
+}
 
-    let material = load_material(
-        ShaderSource::Glsl {
-            vertex: block_shader::VERTEX,
-            fragment: block_shader::FRAGMENT,
-        },
-        MaterialParams {
-            pipeline_params: PipelineParams::default(),
-            uniforms: block_shader::attributes(),
-            textures: vec![String::from("block_texture")],
-        },
-    )
-    .unwrap();
+const DEBUG_FACES: bool = true;
 
-    material.set_uniform("uniforms.tile_size", vec2(1.0, 1.0));
+async fn app(mut game: Game) {
+    set_default_filter_mode(FilterMode::Nearest);
 
-    let block = grass_block(&game);
+    prepare(&mut game);
 
-    let meshes = /* block
-        .faces
-        .into_iter()
-        .map(|(face, texture, color)| BackedFace {
-            position: IVec3::ZERO,
-            face,
-            mesh: face.as_mesh(Vec3::ZERO, Some(texture), color),
-        })
-        .collect::<Vec<_>>(); //  */game.compute_world_mesh();
+    let meshes = game.compute_world_mesh();
 
     let mut player = PlayerController {
         position: vec3(2.0, 20.0, 2.0),
@@ -914,13 +972,15 @@ async fn app() {
         ..Default::default()
     };
 
-    unsafe {
-        // glEnable(GL_CULL_FACE);
-        // glCullFace(GL_FRONT);
-    }
+    // unsafe {
+    //     gl::glEnable(gl::GL_CULL_FACE);
+    //     gl::glCullFace(gl::GL_FRONT);
+    // }
 
-    let mut current_block: Option<(u8, IVec3)> = None;
     let mut wireframe = false;
+    let mut state = GameState {
+        current_block: None,
+    };
 
     loop {
         let delta = get_frame_time();
@@ -937,16 +997,15 @@ async fn app() {
             show_mouse(!grabbed);
         }
 
-        player.handle_physics(&game, &camera, delta);
+        player.handle_physics(&game, delta);
 
-        let mouse_position: Vec2 = mouse_position().into();
-        let mouse_delta = mouse_position - last_mouse_position;
-
-        last_mouse_position = mouse_position;
+        let mouse_position = Vec2::from(mouse_position());
 
         if grabbed {
-            player.handle_mouse(mouse_delta, delta);
+            player.handle_mouse(mouse_position - last_mouse_position, delta);
         }
+
+        last_mouse_position = mouse_position;
 
         clear_background(LIGHTGRAY);
 
@@ -958,49 +1017,21 @@ async fn app() {
 
         set_camera(&camera);
 
-        material.set_uniform("world", camera.matrix());
-
-        // gl_use_material(&material);
         let mut vertices = Vec::new();
 
         if wireframe {
             unsafe {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                gl::glPolygonMode(gl::GL_FRONT_AND_BACK, gl::GL_LINE);
             }
         }
 
         for backed in &meshes {
-            // if player
-            // .front
-            // .angle_between(player.position - backed.position.as_vec3())
-            // > 90f32.to_radians()
-            // {
-            if let Some(texture) = &backed.mesh.texture {
-                material.set_texture("block_texture", texture.clone());
-            }
-
             draw_mesh(&backed.mesh);
 
-            if debug_faces {
-                if let Some((_, block_position)) = current_block {
-                    if backed.position == block_position {
-                        for vertice in &backed.mesh.vertices {
-                            vertices.push(*vertice);
-
-                            draw_sphere(
-                                vertice.position,
-                                0.1,
-                                None,
-                                (vertice.position - backed.position.as_vec3()).as_color(),
-                            );
-                        }
-                    }
-                }
+            if DEBUG_FACES {
+                debug_face_vertices(&state, backed, &mut vertices);
             }
-            // }
         }
-
-        gl_use_default_material();
 
         // Back to screen space, render some text
 
@@ -1008,131 +1039,17 @@ async fn app() {
 
         if wireframe {
             unsafe {
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                gl::glPolygonMode(gl::GL_FRONT_AND_BACK, gl::GL_FILL);
             }
         }
 
-        if let Some((_, block_position)) = current_block {
-            let vertices_count = vertices.len() as f32;
-            let height = ((vertices_count + 2.0) * 12.0);
+        if DEBUG_FACES {
+            debug_current_block_faces(&state, &vertices);
 
-            draw_rectangle(
-                screen_width() - 275.0,
-                screen_height() - height,
-                275.0,
-                height,
-                BLACK,
-            );
-
-            for (i, vertex) in vertices.into_iter().enumerate() {
-                let position = vertex.position - block_position.as_vec3();
-                let text = format!(
-                    "{:5?} {:6?} {:?} ({}) AO: {}",
-                    Face::from_axis_value(Axis::X, position.x),
-                    Face::from_axis_value(Axis::Y, position.y),
-                    Face::from_axis_value(Axis::Z, position.z),
-                    position,
-                    vertex.normal.w
-                );
-                let i = i as f32;
-                let measured = measure_text(&text, None, 16, 1.0);
-
-                draw_text(
-                    &text,
-                    screen_width() - measured.width - 12.0,
-                    screen_height() - measured.height - (12.0 * i),
-                    16.0,
-                    (vertex.position - block_position.as_vec3()).as_color(),
-                );
-            }
-        }
-
-        if debug_faces {
-            let block_position = player.position - vec3(0.0, 2.0, 0.0);
-
-            if let Some((block, block_position)) = current_block {
-                for face in [
-                    Face::Top,
-                    Face::Bottom,
-                    Face::Left,
-                    Face::Right,
-                    Face::Front,
-                    Face::Back,
-                ] {
-                    let normal = face.as_normal() + block_position.as_vec3() + vec3(0.5, 0.5, 0.5);
-
-                    // for vertice in &backed.mesh.vertices {
-                    //     if let Some(position) = camera.unproject_position(vertice.position) {
-                    //         let text = vertice.position.to_string();
-                    //         let measured = measure_text(&text, None, 16, 1.0);
-
-                    //         draw_text(
-                    //             &text,
-                    //             position.x - (measured.width / 2.),
-                    //             position.y,
-                    //             16.0,
-                    //             BLUE,
-                    //         );
-                    //     }
-                    // }
-
-                    if let Some((position, w)) = camera.unproject_position(normal) {
-                        let text = format!("{:?}", face);
-                        let measured = measure_text(&text, None, 16, 1.0);
-
-                        draw_text(
-                            &text,
-                            position.x - (measured.width / 2.),
-                            position.y,
-                            16.0,
-                            Color::from_vec(
-                                (WHITE.to_vec().xyz() * ((15.0 - w) / 15.0)).extend(1.0),
-                            ),
-                        );
-                    }
-                }
-
-                let text = format!(
-                    "Block: {}\nPosition: {}",
-                    if block == 1 { "dirt" } else { "grass" },
-                    block_position
-                );
-
-                let measured = measure_text(&text, None, 32, 1.0);
-
-                draw_multiline_text(
-                    &text,
-                    screen_width() - (measured.width * 0.6) - 12.0,
-                    20.0,
-                    32.0,
-                    None,
-                    RED,
-                );
-
-                if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
-                    current_block.take();
-                }
-            } else if let Some(block) = game.find_block(block_position) {
-                let text = format!(
-                    "Block: {}\nPosition: {}",
-                    if block == 1 { "dirt" } else { "grass" },
-                    block_position.as_ivec3()
-                );
-
-                let measured = measure_text(&text, None, 32, 1.0);
-
-                draw_multiline_text(
-                    &text,
-                    screen_width() - (measured.width * 0.6) - 12.0,
-                    20.0,
-                    32.0,
-                    None,
-                    RED,
-                );
-
-                if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
-                    current_block = Some((block, block_position.as_ivec3()));
-                }
+            if state.current_block.is_some() {
+                debug_current_block(&game, &mut state, &camera);
+            } else {
+                show_block_info(&game, &mut state, player.position - vec3(0.0, 2.0, 0.0));
             }
         }
 

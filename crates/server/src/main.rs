@@ -1,4 +1,4 @@
-use std::{backtrace, error::Error};
+use std::error::Error;
 
 use async_compression::tokio::bufread::ZlibDecoder;
 use tokio::{
@@ -58,7 +58,7 @@ mod tests {
     use async_compression::tokio::write::{ZlibDecoder, ZlibEncoder};
     use glam::IVec2;
     use meralus_meshing::Chunk;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
     async fn test_chunk_compressing() {
