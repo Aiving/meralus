@@ -49,6 +49,30 @@ impl Game {
         }
     }
 
+    pub fn surface_size(&self) -> IVec3 {
+        let mut min = IVec3::ZERO;
+        let mut max = IVec3::ZERO;
+
+        for chunk in self.chunks.keys() {
+            min = min.min(*chunk);
+            max = max.max(*chunk);
+        }
+
+        (max - min) * 16 + IVec3::new(CHUNK_SIZE as i32, CHUNK_HEIGHT as i32, CHUNK_SIZE as i32)
+    }
+
+    pub fn bounds(&self) -> (IVec3, IVec3) {
+        let mut min = IVec3::ZERO;
+        let mut max = IVec3::ZERO;
+
+        for chunk in self.chunks.keys() {
+            min = min.min(*chunk);
+            max = max.max(*chunk);
+        }
+
+        (min * 16, max * 16)
+    }
+
     pub fn load_block(&mut self, block: Block) {
         self.blocks.push(block);
     }
@@ -132,15 +156,27 @@ impl Game {
 
         let vertices: Vec<Vertex> = (0..4)
             .map(|i| {
-                let [side1, side2, corner] = get_vertice_neighbours(
+                let (vertice_neighbours, extra_vertice_neighbours) = get_vertice_neighbours(
                     position,
                     vertices[i].y > 0.0,
                     vertices[i].x > 0.0,
                     vertices[i].z > 0.0,
-                )
-                .map(|pos| self.find_block(pos).is_some());
+                );
 
-                let ambient_occlusion = vertex_ao(side1, side2, corner);
+                let [side1, side2, corner] =
+                    vertice_neighbours.map(|pos| self.find_block(pos).is_some());
+
+                let ambient_occlusion = vertex_ao(
+                    side1,
+                    side2,
+                    corner,
+                    extra_vertice_neighbours.is_some_and(|vertice_neighbours| {
+                        let [side1, side2, side3] =
+                            vertice_neighbours.map(|pos| self.find_block(pos).is_some());
+
+                        (side1 || side2) && side3
+                    }),
+                );
 
                 let color = (WHITE.to_vec().xyz() * ambient_occlusion).extend(1.0);
 

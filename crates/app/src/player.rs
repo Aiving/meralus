@@ -1,4 +1,4 @@
-use crate::{Game, get_movement_direction, get_rotation_directions};
+use crate::{Game, get_movement_direction, get_rotation_directions, raycast};
 use macroquad::{
     input::{KeyCode, is_key_down, is_key_pressed},
     math::{Vec2, Vec3, vec3},
@@ -109,7 +109,13 @@ impl PlayerController {
         }
     }
 
-    pub fn handle_mouse(&mut self, mouse_delta: Vec2, delta: f32) {
+    pub fn handle_mouse(
+        &mut self,
+        looking_at: &mut Option<Vec3>,
+        game: &Game,
+        mouse_delta: Vec2,
+        delta: f32,
+    ) {
         self.yaw += mouse_delta.x * delta * Self::LOOK_SPEED;
         self.pitch += mouse_delta.y * delta * -Self::LOOK_SPEED;
 
@@ -122,6 +128,8 @@ impl PlayerController {
             self.yaw.sin() * self.pitch.cos(),
         )
         .normalize();
+
+        *looking_at = raycast(game, self.position.floor().as_ivec3(), self.front, 30.0);
 
         self.right = self.front.cross(Vec3::Y).normalize();
         self.up = self.right.cross(self.front).normalize();

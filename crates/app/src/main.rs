@@ -22,7 +22,7 @@ pub use self::{
     transform::Transform,
     util::{
         CameraExt, Vec3Ext, VertexExt, get_movement_direction, get_rotation_directions,
-        get_vertice_neighbours, vertex_ao,
+        get_vertice_neighbours, raycast, vertex_ao,
     },
 };
 use macroquad::{miniquad::gl, prelude::*};
@@ -98,30 +98,67 @@ fn debug_face_vertices(game: &GameState, backed: &BackedFace, vertices: &mut Vec
     }
 }
 
-fn debug_current_block_faces(game: &GameState, vertices: &[Vertex]) {
-    if let Some((_, block_position)) = game.current_block {
-        let vertices_count = vertices.len() as f32;
-        let height = (vertices_count + 2.0) * 12.0;
+fn debug_current_block_faces(game: &Game, state: &GameState, vertices: &[Vertex]) {
+    if let Some((_, block_position)) = state.current_block {
+        let mut width = 0.0f32;
+        let mut height = 24.0f32;
+
+        for vertex in vertices {
+            let position = vertex.position - block_position.as_vec3();
+            let ([side1, side2, corner], _) = get_vertice_neighbours(
+                block_position.as_vec3(),
+                position.y > 0.0,
+                position.x > 0.0,
+                position.z > 0.0,
+            );
+
+            let text = format!(
+                "{:<5} {:<6} {:<5} ({}) AO: {:<4} (side1[{side1}]: {:?}, side2[{side2}]: {:?}, corner[{corner}]: {:?})",
+                Face::from_axis_value(Axis::X, position.x),
+                Face::from_axis_value(Axis::Y, position.y),
+                Face::from_axis_value(Axis::Z, position.z),
+                position,
+                vertex.normal.w,
+                game.find_block(side1),
+                game.find_block(side2),
+                game.find_block(corner),
+            );
+
+            let measured = measure_text(&text, None, 16, 1.0);
+
+            width = width.max(measured.width);
+            height += measured.height;
+        }
 
         draw_rectangle(
-            screen_width() - 275.0,
+            screen_width() - width - 24.0,
             screen_height() - height,
-            275.0,
+            width + 24.0,
             height,
             BLACK,
         );
 
         for (i, vertex) in vertices.iter().enumerate() {
+            let i = i as f32;
             let position = vertex.position - block_position.as_vec3();
+            let ([side1, side2, corner], _) = get_vertice_neighbours(
+                block_position.as_vec3(),
+                position.y > 0.0,
+                position.x > 0.0,
+                position.z > 0.0,
+            );
             let text = format!(
-                "{:5?} {:6?} {:?} ({}) AO: {}",
+                "{:<5} {:<6} {:<5} ({}) AO: {:<4} (side1[{side1}]: {:?}, side2[{side2}]: {:?}, corner[{corner}]: {:?})",
                 Face::from_axis_value(Axis::X, position.x),
                 Face::from_axis_value(Axis::Y, position.y),
                 Face::from_axis_value(Axis::Z, position.z),
                 position,
-                vertex.normal.w
+                vertex.normal.w,
+                game.find_block(side1),
+                game.find_block(side2),
+                game.find_block(corner),
             );
-            let i = i as f32;
+
             let measured = measure_text(&text, None, 16, 1.0);
 
             draw_text(
@@ -255,6 +292,8 @@ async fn app(mut game: Game) {
         current_block: None,
     };
 
+    let mut looking_at = None;
+
     loop {
         let delta = get_frame_time();
 
@@ -275,7 +314,12 @@ async fn app(mut game: Game) {
         let mouse_position = Vec2::from(mouse_position());
 
         if grabbed {
-            player.handle_mouse(mouse_position - last_mouse_position, delta);
+            player.handle_mouse(
+                &mut looking_at,
+                &game,
+                mouse_position - last_mouse_position,
+                delta,
+            );
         }
 
         last_mouse_position = mouse_position;
@@ -306,6 +350,10 @@ async fn app(mut game: Game) {
             }
         }
 
+        if let Some(position) = looking_at {
+            draw_cube_wires(position + (Vec3::ONE / 2.0), Vec3::ONE * 1.1, GRAY);
+        }
+
         // Back to screen space, render some text
 
         set_default_camera();
@@ -317,7 +365,7 @@ async fn app(mut game: Game) {
         }
 
         if DEBUG_FACES {
-            debug_current_block_faces(&state, &vertices);
+            debug_current_block_faces(&game, &state, &vertices);
 
             if state.current_block.is_some() {
                 debug_current_block(&game, &mut state, &camera);

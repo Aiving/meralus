@@ -1,3 +1,5 @@
+use std::fmt;
+
 use macroquad::math::{Vec2, Vec3, vec2, vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -8,6 +10,19 @@ pub enum Face {
     Right,
     Front,
     Back,
+}
+
+impl fmt::Display for Face {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Top => f.write_str("Top"),
+            Self::Bottom => f.write_str("Bottom"),
+            Self::Left => f.write_str("Left"),
+            Self::Right => f.write_str("Right"),
+            Self::Front => f.write_str("Front"),
+            Self::Back => f.write_str("Back"),
+        }
+    }
 }
 
 pub enum Axis {
