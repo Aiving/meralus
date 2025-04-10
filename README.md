@@ -20,6 +20,14 @@ YEAH, I'M GOOD AT NAMING THINGS.
 
 ![img](https://c.tenor.com/Bl6dhMPkMs0AAAAd/tenor.gif)
 
+### Screenshots
+
+![image](https://github.com/user-attachments/assets/f8906e0b-c96b-40ba-b3fa-9f0a1a16787d)
+![image](https://github.com/user-attachments/assets/d13c6b6f-4685-41c1-b2c8-f9153b81990a)
+![image](https://github.com/user-attachments/assets/a1100126-43b1-4a40-9cf0-db5fda62fac7)
+![image](https://github.com/user-attachments/assets/8b13db29-b6b2-4ac0-b034-399369b2eaa9)
+
+
 #### uhh???
 
 lol weird physics (i'm suck at math (and shaders too))
