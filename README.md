@@ -26,7 +26,7 @@ YEAH, I'M GOOD AT NAMING THINGS.
 
 #### uhh???
 
-lol weird physics (i'm suck at math (and shaders too))
+lol weird physics (i suck at math (and shaders too))
 
 ~~btw just a thought, but maybe i'll switch from `macroquad` to something else (either `bevy` or my own wrapper over opengl)~~ **WIP!**
 
