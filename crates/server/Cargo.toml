@@ -6,8 +6,10 @@ edition = "2024"
 [dependencies]
 async-compression = { workspace = true }
 tokio = { workspace = true }
-meralus-meshing = { workspace = true }
+meralus-world = { workspace = true }
+meralus-shared = { workspace = true }
 glam = { workspace = true }
+futures = { workspace = true }
 
 [lints]
 workspace = true

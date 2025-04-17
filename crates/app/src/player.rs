@@ -1,8 +1,8 @@
-use crate::{Game, get_movement_direction, get_rotation_directions, raycast};
-use macroquad::{
-    input::{KeyCode, is_key_down, is_key_pressed},
-    math::{Vec2, Vec3, vec3},
+use crate::{
+    Camera3D, Game, KeyboardController, get_movement_direction, get_rotation_directions, raycast,
 };
+use glam::{FloatExt, Vec2, Vec3, vec3};
+use meralus_engine::KeyCode;
 
 pub struct PlayerController {
     pub position: Vec3,
@@ -45,35 +45,47 @@ impl Default for PlayerController {
 
 impl PlayerController {
     pub const MOVE_SPEED: f32 = 4.;
+    pub const MOUSE_SENSE: f32 = 0.05;
     pub const LOOK_SPEED: f32 = 0.1;
-    pub const GRAVITY: f32 = 9.81;
+    pub const GRAVITY: f32 = 9.81 * 1.5;
+    pub const AFFECTED_BY_PHYSICS: bool = true;
 
     #[must_use]
     pub fn is_on_ground(&self, game: &Game) -> bool {
-        game.find_block(self.position - vec3(0.0, 2.0, 0.0))
-            .is_some()
+        // raycast(game, self.position.as_ivec3(), Vec3::NEG_Y, 2.0).is_some()
+        game.block_exists(self.position.mul_add(Vec3::ONE, Vec3::NEG_Y * 2.0))
     }
 
-    pub fn handle_physics(&mut self, game: &Game, delta: f32) {
-        let direction = get_movement_direction();
+    pub fn handle_physics(
+        &mut self,
+        game: &Game,
+        keyboard: &KeyboardController,
+        camera: &mut Camera3D,
+        delta: f32,
+    ) {
+        let direction = get_movement_direction(keyboard);
 
         let (front, right, _) = get_rotation_directions(self.yaw, 0.0);
 
         let velocity = ((front * direction.z) + (right * direction.x))
-            * if is_key_down(KeyCode::LeftControl) && direction.z > 0.0 {
+            * if keyboard.is_key_pressed(KeyCode::ShiftLeft) && direction.z > 0.0 {
+                camera.fovy = camera.fovy.lerp(65.0_f32.to_radians(), 0.15);
+
                 Self::MOVE_SPEED * 1.5
             } else {
+                camera.fovy = camera.fovy.lerp(55.0_f32.to_radians(), 0.15);
+
                 Self::MOVE_SPEED
             };
 
         self.velocity.x = velocity.x;
         self.velocity.z = velocity.z;
 
-        if !self.is_on_ground(game) {
+        if !self.is_on_ground(game) && Self::AFFECTED_BY_PHYSICS {
             self.velocity.y -= Self::GRAVITY * delta;
         }
 
-        if self.is_on_ground(game) && self.velocity.y <= 0.0 {
+        if self.is_on_ground(game) && self.velocity.y <= 0.0 && Self::AFFECTED_BY_PHYSICS {
             self.velocity.y = 0.0;
         }
 
@@ -87,7 +99,9 @@ impl PlayerController {
         //     }
         // }
 
-        if is_key_pressed(KeyCode::Space) && self.is_on_ground(game) {
+        if keyboard.is_key_pressed(KeyCode::Space)
+            && (self.is_on_ground(game) || !Self::AFFECTED_BY_PHYSICS)
+        {
             self.velocity.y = 5.0;
         }
 
@@ -109,15 +123,9 @@ impl PlayerController {
         }
     }
 
-    pub fn handle_mouse(
-        &mut self,
-        looking_at: &mut Option<Vec3>,
-        game: &Game,
-        mouse_delta: Vec2,
-        delta: f32,
-    ) {
-        self.yaw += mouse_delta.x * delta * Self::LOOK_SPEED;
-        self.pitch += mouse_delta.y * delta * -Self::LOOK_SPEED;
+    pub fn handle_mouse(&mut self, looking_at: &mut Option<Vec3>, game: &Game, mouse_delta: Vec2) {
+        self.yaw += mouse_delta.x * Self::MOUSE_SENSE * Self::LOOK_SPEED;
+        self.pitch += mouse_delta.y * Self::MOUSE_SENSE * -Self::LOOK_SPEED;
 
         self.pitch = if self.pitch > 1.5 { 1.5 } else { self.pitch };
         self.pitch = if self.pitch < -1.5 { -1.5 } else { self.pitch };

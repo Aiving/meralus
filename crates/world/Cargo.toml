@@ -1,11 +1,15 @@
 [package]
-name = "meralus-meshing"
+name = "meralus-world"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 glam = { workspace = true }
 noise = { workspace = true }
+owo-colors = "4.2.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+splines = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,8 +1,9 @@
+use glam::{IVec3, U16Vec3, Vec2, Vec3, ivec3, vec2, vec3};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use macroquad::math::{Vec2, Vec3, vec2, vec3};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum Face {
     Top,
     Bottom,
@@ -51,6 +52,32 @@ impl Face {
         vec3(0.0, 1.0, 0.0), // 6 LEFT  TOP    BACK
         vec3(1.0, 1.0, 0.0), // 7 RIGHT TOP    BACK
     ];
+
+    pub const fn normal_index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Bottom => 2,
+            Self::Top => 3,
+            Self::Front => 4,
+            Self::Back => 5,
+        }
+    }
+
+    pub const fn world_to_sample(&self, axis: i32, x: i32, y: i32) -> IVec3 {
+        match self {
+            Self::Top => ivec3(x, axis + 1, y),
+            Self::Bottom => ivec3(x, axis, y),
+            Self::Left => ivec3(axis, y, x),
+            Self::Right => ivec3(axis + 1, y, x),
+            Self::Front => ivec3(x, y, axis),
+            Self::Back => ivec3(x, y, axis + 1),
+        }
+    }
+
+    pub const fn reverse_order(&self) -> bool {
+        matches!(self, Self::Top | Self::Right | Self::Front)
+    }
 
     #[must_use]
     pub fn from_axis_value(axis: Axis, value: f32) -> Self {
@@ -108,6 +135,60 @@ impl Face {
     }
 
     #[must_use]
+    pub const fn as_full_vertices(self) -> [Vec3; 6] {
+        match self {
+            Self::Top => [
+                Self::VERTICES[2],
+                Self::VERTICES[6],
+                Self::VERTICES[7],
+                Self::VERTICES[7],
+                Self::VERTICES[3],
+                Self::VERTICES[2],
+            ],
+            Self::Bottom => [
+                Self::VERTICES[1],
+                Self::VERTICES[5],
+                Self::VERTICES[4],
+                Self::VERTICES[4],
+                Self::VERTICES[0],
+                Self::VERTICES[1],
+            ],
+            Self::Left => [
+                Self::VERTICES[4],
+                Self::VERTICES[6],
+                Self::VERTICES[2],
+                Self::VERTICES[2],
+                Self::VERTICES[0],
+                Self::VERTICES[4],
+            ],
+            Self::Right => [
+                Self::VERTICES[1],
+                Self::VERTICES[3],
+                Self::VERTICES[7],
+                Self::VERTICES[7],
+                Self::VERTICES[5],
+                Self::VERTICES[1],
+            ],
+            Self::Front => [
+                Self::VERTICES[1],
+                Self::VERTICES[3],
+                Self::VERTICES[2],
+                Self::VERTICES[2],
+                Self::VERTICES[0],
+                Self::VERTICES[1],
+            ],
+            Self::Back => [
+                Self::VERTICES[5],
+                Self::VERTICES[7],
+                Self::VERTICES[6],
+                Self::VERTICES[6],
+                Self::VERTICES[4],
+                Self::VERTICES[5],
+            ],
+        }
+    }
+
+    #[must_use]
     pub const fn as_uv(self) -> [Vec2; 4] {
         match self {
             Self::Top => [
@@ -141,5 +222,19 @@ impl Face {
             Self::Front => Vec3::Z,
             Self::Back => Vec3::NEG_Z,
         }
+    }
+
+    #[must_use]
+    pub const fn add_position(self, mut position: U16Vec3) -> U16Vec3 {
+        match self {
+            Self::Top => position.y += 1,
+            Self::Bottom => position.y = position.y.saturating_sub(1),
+            Self::Right => position.x += 1,
+            Self::Left => position.x = position.x.saturating_sub(1),
+            Self::Front => position.z += 1,
+            Self::Back => position.z = position.z.saturating_sub(1),
+        }
+
+        position
     }
 }

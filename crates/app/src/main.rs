@@ -8,393 +8,284 @@
 )]
 
 mod block;
-mod face;
 mod game;
+mod loaders;
+mod mesh;
 mod player;
 mod transform;
+mod ui;
 mod util;
+
+mod shader {
+    pub const VERTEX: &str = include_str!("../resources/shaders/common_vertex.glsl");
+    pub const FRAGMENT: &str = include_str!("../resources/shaders/common_fragment.glsl");
+}
 
 pub use self::{
     block::Block,
-    face::{Axis, Face},
     game::{BackedFace, Game, GameState},
+    loaders::{BlockLoader, BlockModel, BlockModelFace, BlockModelLoader, TextureLoader},
     player::PlayerController,
     transform::Transform,
     util::{
-        CameraExt, Vec3Ext, VertexExt, get_movement_direction, get_rotation_directions,
+        CameraExt, Vec3Ext, get_movement_direction, get_rotation_directions,
         get_vertice_neighbours, raycast, vertex_ao,
     },
 };
-use macroquad::{miniquad::gl, prelude::*};
-use std::path::PathBuf;
+use clap::Parser;
+use futures::{SinkExt, StreamExt};
+use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
+use meralus_engine::{
+    ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
+    glium::{
+        Depth, DepthTest, DrawParameters, Program, Surface, VertexBuffer,
+        index::{NoIndices, PrimitiveType},
+        uniform,
+        uniforms::MagnifySamplerFilter,
+        winit::{event_loop::ControlFlow, keyboard::PhysicalKey},
+    },
+};
+use meralus_shared::{IncomingPacket, OutgoingPacket, wrap_stream};
+use owo_colors::OwoColorize;
+use std::{collections::HashSet, net::SocketAddrV4};
+use tokio::net::TcpStream;
 
-const DEBUG_FACES: bool = true;
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long, requires = "net")]
+    host: Option<SocketAddrV4>,
+    #[arg(short, long, group = "net")]
+    nickname: Option<String>,
+}
 
-fn conf() -> Conf {
-    Conf {
-        window_title: String::from("Macroquad"),
-        window_width: 1260,
-        window_height: 768,
-        ..Default::default()
+#[derive(Debug)]
+pub struct Camera3D {
+    pub position: Vec3,
+    pub target: Vec3,
+    pub up: Vec3,
+    pub fovy: f32,
+    pub aspect: f32,
+
+    pub z_near: f32,
+    pub z_far: f32,
+}
+
+impl Default for Camera3D {
+    fn default() -> Self {
+        Self {
+            position: vec3(0., -10., 0.),
+            target: vec3(0., 0., 0.),
+            aspect: 1024.0 / 768.0,
+            up: vec3(0., 0., 1.),
+            fovy: 45.0_f32.to_radians(),
+            z_near: 0.01,
+            z_far: 10000.0,
+        }
     }
 }
 
-fn dirt_block(game: &Game) -> Block {
-    let dirt = game.get_texture("dirt").unwrap();
-
-    Block::from_iter([
-        (Face::Top, dirt.weak_clone(), None),
-        (Face::Bottom, dirt.weak_clone(), None),
-        (Face::Right, dirt.weak_clone(), None),
-        (Face::Left, dirt.weak_clone(), None),
-        (Face::Front, dirt.weak_clone(), None),
-        (Face::Back, dirt.weak_clone(), None),
-    ])
+impl Camera3D {
+    fn matrix(&self) -> Mat4 {
+        Mat4::perspective_rh_gl(self.fovy, self.aspect, self.z_near, self.z_far)
+            * Mat4::look_at_rh(self.position, self.target, self.up)
+    }
 }
 
-fn grass_block(game: &Game) -> Block {
-    let dirt = game.get_texture("dirt").unwrap();
-    let top = game.get_texture("grass-block/top").unwrap();
-    let side = game.get_texture("grass-block/side").unwrap();
-    let overlay = game.get_texture("grass-block/side-overlay").unwrap();
+#[derive(Debug, Default)]
+pub struct KeyboardController {
+    pressed: HashSet<KeyCode>,
+    pressed_once: HashSet<KeyCode>,
+    released: HashSet<KeyCode>,
+}
 
-    let color = Color::from_hex(0x5fe366);
+struct GameLoop {
+    game: Game,
+    keyboard: KeyboardController,
+    program: Program,
+    camera: Camera3D,
+    player: PlayerController,
+    draws: Vec<(VertexBuffer<Vertex>, usize)>,
+}
 
-    Block::from_iter([
-        (Face::Top, top.weak_clone(), Some(color)),
-        (Face::Bottom, dirt.weak_clone(), None),
-        (Face::Right, side.weak_clone(), None),
-        (Face::Left, side.weak_clone(), None),
-        (Face::Front, side.weak_clone(), None),
-        (Face::Back, side.weak_clone(), None),
-        (Face::Right, overlay.weak_clone(), Some(color)),
-        (Face::Left, overlay.weak_clone(), Some(color)),
-        (Face::Front, overlay.weak_clone(), Some(color)),
-        (Face::Back, overlay.weak_clone(), Some(color)),
-    ])
+impl KeyboardController {
+    pub fn is_key_pressed(&self, key: KeyCode) -> bool {
+        self.pressed.contains(&key)
+    }
+
+    pub fn is_key_pressed_once(&self, key: KeyCode) -> bool {
+        self.pressed_once.contains(&key)
+    }
+
+    pub fn is_key_released(&self, key: KeyCode) -> bool {
+        self.released.contains(&key)
+    }
+}
+
+impl State for GameLoop {
+    fn new(display: &WindowDisplay) -> Self {
+        let mut game = Game::new("./resources", 12723, -4..4, -4..4);
+
+        println!(
+            "[{:18}] Generated {} chunks",
+            "INFO/WorldGen".bright_green(),
+            game.chunks_count().bright_blue().bold(),
+        );
+
+        game.load_buitlin_blocks(display);
+
+        let mut draws = Vec::new();
+
+        let world_mesh = game.compute_world_mesh();
+
+        println!(
+            "[{:18}] Generated {} meshes for chunks",
+            "INFO/Rendering".bright_green(),
+            world_mesh.len().bright_blue().bold()
+        );
+
+        for meshes in world_mesh {
+            for mesh in meshes {
+                draws.push((
+                    VertexBuffer::new(display, &mesh.vertices).unwrap(),
+                    mesh.texture_id,
+                ));
+            }
+        }
+
+        println!(
+            "[{:18}] All DrawCall's for OpenGL created",
+            "INFO/Rendering".bright_green(),
+        );
+
+        let player = PlayerController {
+            position: vec3(2.0, 200.0, 2.0),
+            ..Default::default()
+        };
+
+        Self {
+            game,
+            draws,
+            camera: Camera3D {
+                position: player.position,
+                up: player.up,
+                target: player.position + player.front,
+                ..Default::default()
+            },
+            player,
+            program: Program::from_source(display, shader::VERTEX, shader::FRAGMENT, None).unwrap(),
+            keyboard: KeyboardController::default(),
+        }
+    }
+
+    fn handle_window_resize(&mut self, _: &ActiveEventLoop, size: UVec2) {
+        let size = size.as_vec2();
+
+        self.camera.aspect = size.x / size.y;
+    }
+
+    fn handle_keyboard_input(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: meralus_engine::glium::winit::event::KeyEvent,
+    ) {
+        if let PhysicalKey::Code(code) = event.physical_key {
+            if event.state.is_pressed() {
+                self.keyboard.pressed_once.insert(code);
+
+                if !event.repeat && self.keyboard.pressed.contains(&code) {
+                    self.keyboard.pressed.remove(&code);
+                }
+
+                self.keyboard.pressed.insert(code);
+            } else {
+                if code == KeyCode::Escape {
+                    event_loop.exit();
+                }
+
+                self.keyboard.pressed.remove(&code);
+                self.keyboard.released.insert(code);
+            }
+        }
+    }
+
+    fn handle_mouse_motion(&mut self, _: &ActiveEventLoop, mouse_delta: Vec2) {
+        self.player.handle_mouse(&mut None, &self.game, mouse_delta);
+    }
+
+    fn fixed_update(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, delta: f32) {
+        self.player
+            .handle_physics(&self.game, &self.keyboard, &mut self.camera, delta);
+
+        self.camera.position = self.player.position;
+        self.camera.up = self.player.up;
+        self.camera.target = self.player.position + self.player.front;
+    }
+
+    fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay) {
+        // println!("DRAWING!");
+
+        let mut frame = display.draw();
+
+        frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+
+        // println!("draws: {}", self.draws.len());
+
+        for (vertex_buffer, /* index_buffer, */ texture_id) in &self.draws {
+            let matrix = self.camera.matrix();
+
+            let uniforms = uniform! {
+                matrix: matrix.to_cols_array_2d(),
+                tex: self.game.get_texture_by_id(*texture_id).unwrap().sampled().magnify_filter(MagnifySamplerFilter::Nearest),
+            };
+
+            // println!("trying to render");
+            frame
+                .draw(
+                    vertex_buffer,
+                    NoIndices(PrimitiveType::TrianglesList),
+                    &self.program,
+                    &uniforms,
+                    &DrawParameters {
+                        depth: Depth {
+                            test: DepthTest::IfLessOrEqual,
+                            write: true,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                )
+                .expect("failed to draw!");
+        }
+
+        frame.finish().expect("failed to finish draw frame");
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    macroquad::Window::from_config(conf(), app(Game::new(12723, 0..1, 0..1)));
-}
+    let args = Args::parse();
 
-fn debug_face_vertices(game: &GameState, backed: &BackedFace, vertices: &mut Vec<Vertex>) {
-    if let Some((_, block_position)) = &game.current_block {
-        if &backed.position == block_position {
-            for vertice in &backed.mesh.vertices {
-                if !vertices.iter().any(|b| vertice.position == b.position) {
-                    vertices.push(*vertice);
-                }
+    if let Some(host) = args.host {
+        let stream = TcpStream::connect(host).await.unwrap();
+        let (mut stream, mut sink) = wrap_stream(stream);
 
-                draw_sphere(
-                    vertice.position,
-                    0.1,
-                    None,
-                    (vertice.position - backed.position.as_vec3()).as_color(),
-                );
-            }
+        sink.send(IncomingPacket::PlayerConnected {
+            name: args.nickname.unwrap(),
+        })
+        .await
+        .unwrap();
+
+        sink.send(IncomingPacket::GetPlayers).await.unwrap();
+
+        if let Some(Ok(OutgoingPacket::PlayersList { players })) = stream.next().await {
+            println!("{players:#?}");
         }
     }
-}
 
-fn debug_current_block_faces(game: &Game, state: &GameState, vertices: &[Vertex]) {
-    if let Some((_, block_position)) = state.current_block {
-        let mut width = 0.0f32;
-        let mut height = 24.0f32;
+    let mut app = Application::<GameLoop>::default();
+    let event_loop = EventLoop::builder().build().unwrap();
 
-        for vertex in vertices {
-            let position = vertex.position - block_position.as_vec3();
-            let ([side1, side2, corner], _) = get_vertice_neighbours(
-                block_position.as_vec3(),
-                position.y > 0.0,
-                position.x > 0.0,
-                position.z > 0.0,
-            );
-
-            let text = format!(
-                "{:<5} {:<6} {:<5} ({}) AO: {:<4} (side1[{side1}]: {:?}, side2[{side2}]: {:?}, corner[{corner}]: {:?})",
-                Face::from_axis_value(Axis::X, position.x),
-                Face::from_axis_value(Axis::Y, position.y),
-                Face::from_axis_value(Axis::Z, position.z),
-                position,
-                vertex.normal.w,
-                game.find_block(side1),
-                game.find_block(side2),
-                game.find_block(corner),
-            );
-
-            let measured = measure_text(&text, None, 16, 1.0);
-
-            width = width.max(measured.width);
-            height += measured.height;
-        }
-
-        draw_rectangle(
-            screen_width() - width - 24.0,
-            screen_height() - height,
-            width + 24.0,
-            height,
-            BLACK,
-        );
-
-        for (i, vertex) in vertices.iter().enumerate() {
-            let i = i as f32;
-            let position = vertex.position - block_position.as_vec3();
-            let ([side1, side2, corner], _) = get_vertice_neighbours(
-                block_position.as_vec3(),
-                position.y > 0.0,
-                position.x > 0.0,
-                position.z > 0.0,
-            );
-            let text = format!(
-                "{:<5} {:<6} {:<5} ({}) AO: {:<4} (side1[{side1}]: {:?}, side2[{side2}]: {:?}, corner[{corner}]: {:?})",
-                Face::from_axis_value(Axis::X, position.x),
-                Face::from_axis_value(Axis::Y, position.y),
-                Face::from_axis_value(Axis::Z, position.z),
-                position,
-                vertex.normal.w,
-                game.find_block(side1),
-                game.find_block(side2),
-                game.find_block(corner),
-            );
-
-            let measured = measure_text(&text, None, 16, 1.0);
-
-            draw_text(
-                &text,
-                screen_width() - measured.width - 12.0,
-                12.0f32.mul_add(-i, screen_height() - measured.height),
-                16.0,
-                (vertex.position - block_position.as_vec3()).as_color(),
-            );
-        }
-    }
-}
-
-fn debug_current_block(game: &Game, state: &mut GameState, camera: &Camera3D) {
-    if let Some((_, block_position)) = state.current_block {
-        for face in Face::ALL {
-            let normal = block_position.as_vec3() + (face.as_normal() / 2.0) + (Vec3::ONE / 2.0);
-
-            // for vertice in &backed.mesh.vertices {
-            //     if let Some(position) = camera.unproject_position(vertice.position) {
-            //         let text = vertice.position.to_string();
-            //         let measured = measure_text(&text, None, 16, 1.0);
-
-            //         draw_text(
-            //             &text,
-            //             position.x - (measured.width / 2.),
-            //             position.y,
-            //             16.0,
-            //             BLUE,
-            //         );
-            //     }
-            // }
-
-            if let Some((position, w)) = camera.unproject_position(normal) {
-                let text = format!("{face:?}");
-                let measured = measure_text(&text, None, 16, 1.0);
-
-                draw_text(
-                    &text,
-                    position.x - (measured.width / 2.),
-                    position.y,
-                    16.0,
-                    Color::from_vec((WHITE.to_vec().xyz() * ((15.0 - w) / 15.0)).extend(1.0)),
-                );
-            }
-        }
-
-        if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
-            state.current_block.take();
-        } else {
-            show_block_info(game, state, block_position.as_vec3());
-        }
-    }
-}
-
-fn show_block_info(game: &Game, state: &mut GameState, position: Vec3) {
-    if let Some(block) = game.find_block(position) {
-        let text = format!(
-            "Block: {}\nPosition: {}",
-            if block == 1 { "dirt" } else { "grass" },
-            position.as_ivec3()
-        );
-
-        let measured = measure_text(&text, None, 32, 1.0);
-
-        draw_multiline_text(
-            &text,
-            measured.width.mul_add(-0.6, screen_width()) - 12.0,
-            20.0,
-            32.0,
-            None,
-            RED,
-        );
-
-        if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::F) {
-            state.current_block = Some((block, position.as_ivec3()));
-        }
-    }
-}
-
-fn prepare(game: &mut Game) {
-    let root = PathBuf::from("/home/aiving/dev/meralus/crates/app/resources/textures");
-
-    game.load_texture("dirt", root.join("dirt.png"));
-    game.load_texture("grass-block/top", root.join("grass_block_top.png"));
-    game.load_texture("grass-block/side", root.join("grass_block_side.png"));
-    game.load_texture(
-        "grass-block/side-overlay",
-        root.join("grass_block_side_overlay.png"),
-    );
-
-    game.load_block(dirt_block(game));
-    game.load_block(grass_block(game));
-    game.find_chunk_mut(Vec3::ZERO).unwrap().blocks[16][2][2] = 2;
-}
-
-async fn app(mut game: Game) {
-    set_default_filter_mode(FilterMode::Nearest);
-
-    prepare(&mut game);
-
-    let meshes = game.compute_world_mesh();
-
-    let mut player = PlayerController {
-        position: vec3(2.0, 20.0, 2.0),
-        ..Default::default()
-    };
-
-    let mut last_mouse_position: Vec2 = mouse_position().into();
-
-    let mut grabbed = true;
-
-    set_cursor_grab(grabbed);
-
-    show_mouse(false);
-
-    let mut camera = Camera3D {
-        position: player.position,
-        up: player.up,
-        target: player.position + player.front,
-        ..Default::default()
-    };
-
-    // unsafe {
-    //     gl::glEnable(gl::GL_CULL_FACE);
-    //     gl::glCullFace(gl::GL_FRONT);
-    // }
-
-    let mut wireframe = false;
-    let mut state = GameState {
-        current_block: None,
-    };
-
-    let mut looking_at = None;
-
-    loop {
-        let delta = get_frame_time();
-
-        if is_key_pressed(KeyCode::Escape) {
-            break;
-        }
-
-        if is_key_pressed(KeyCode::Tab) {
-            grabbed = !grabbed;
-
-            set_cursor_grab(grabbed);
-
-            show_mouse(!grabbed);
-        }
-
-        player.handle_physics(&game, delta);
-
-        let mouse_position = Vec2::from(mouse_position());
-
-        if grabbed {
-            player.handle_mouse(
-                &mut looking_at,
-                &game,
-                mouse_position - last_mouse_position,
-                delta,
-            );
-        }
-
-        last_mouse_position = mouse_position;
-
-        clear_background(LIGHTGRAY);
-
-        // Going 3d!
-
-        camera.position = player.position;
-        camera.up = player.up;
-        camera.target = player.position + player.front;
-
-        set_camera(&camera);
-
-        let mut vertices = Vec::new();
-
-        if wireframe {
-            unsafe {
-                gl::glPolygonMode(gl::GL_FRONT_AND_BACK, gl::GL_LINE);
-            }
-        }
-
-        for backed in &meshes {
-            draw_mesh(&backed.mesh);
-
-            if DEBUG_FACES {
-                debug_face_vertices(&state, backed, &mut vertices);
-            }
-        }
-
-        if let Some(position) = looking_at {
-            draw_cube_wires(position + (Vec3::ONE / 2.0), Vec3::ONE * 1.1, GRAY);
-        }
-
-        // Back to screen space, render some text
-
-        set_default_camera();
-
-        if wireframe {
-            unsafe {
-                gl::glPolygonMode(gl::GL_FRONT_AND_BACK, gl::GL_FILL);
-            }
-        }
-
-        if DEBUG_FACES {
-            debug_current_block_faces(&game, &state, &vertices);
-
-            if state.current_block.is_some() {
-                debug_current_block(&game, &mut state, &camera);
-            } else {
-                show_block_info(&game, &mut state, player.position - vec3(0.0, 2.0, 0.0));
-            }
-        }
-
-        draw_multiline_text(
-            &format!(
-                "FPS: {}\nFrame time: {delta}\nYaw: {}deg\nPitch: {}\nX: {}\nY: {}\nZ: {}",
-                get_fps(),
-                player.yaw / PlayerController::LOOK_SPEED,
-                player.pitch / -PlayerController::LOOK_SPEED,
-                player.position.x,
-                player.position.y,
-                player.position.z
-            ),
-            10.0,
-            20.0,
-            32.0,
-            None,
-            BLACK,
-        );
-
-        if is_key_released(KeyCode::T) {
-            wireframe = !wireframe;
-        }
-
-        next_frame().await;
-    }
+    event_loop.set_control_flow(ControlFlow::Poll);
+    event_loop.run_app(&mut app).unwrap();
 }

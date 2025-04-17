@@ -1,0 +1,10 @@
+{
+    "textures": {
+        "#all": "game:dirt"
+    },
+    "elements": [
+        {
+            "all": "#all"
+        }
+    ]
+}

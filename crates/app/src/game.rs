@@ -1,23 +1,26 @@
-use crate::{Block, Face, VertexExt, get_vertice_neighbours, vertex_ao};
-use macroquad::{
-    color::{Color, WHITE},
-    math::{IVec3, Vec3, Vec4Swizzles, ivec2, ivec3, vec3},
-    models::Mesh,
-    texture::Texture2D,
-    ui::Vertex,
-};
-use meralus_meshing::{CHUNK_HEIGHT, CHUNK_SIZE, Chunk};
+use crate::{BlockModelLoader, TextureLoader, get_vertice_neighbours, mesh::Mesh, vertex_ao};
+use glam::{IVec3, Vec3, ivec2, ivec3, u16vec3, vec3};
+use meralus_engine::{AsValue, Color, Vertex, WindowDisplay, glium::texture::CompressedTexture2d};
+use meralus_world::{CHUNK_SIZE, Chunk, Face, SUBCHUNK_COUNT};
 use std::{
-    collections::{HashMap, hash_map::Entry},
-    fs,
+    collections::HashMap,
     ops::Range,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub struct Game {
-    textures: HashMap<String, Texture2D>,
-    blocks: Vec<Block>,
+    textures: TextureLoader,
+    blocks: BlockModelLoader,
     chunks: HashMap<IVec3, Chunk>,
+    players: Vec<Player>,
+    root: PathBuf,
+    // pub egui: EGui,
+}
+
+pub struct Player {
+    pub position: Vec3,
+    pub nickname: String,
+    pub is_me: bool,
 }
 
 pub struct GameState {
@@ -32,10 +35,17 @@ pub struct BackedFace {
 
 impl Game {
     #[must_use]
-    pub fn new(seed: u32, x_range: Range<i32>, z_range: Range<i32>) -> Self {
+    pub fn new(
+        root: impl Into<PathBuf>,
+        seed: u32,
+        x_range: Range<i32>,
+        z_range: Range<i32>,
+    ) -> Self {
         Self {
-            textures: HashMap::new(),
-            blocks: Vec::new(),
+            textures: TextureLoader::default(),
+            blocks: BlockModelLoader::default(),
+            players: Vec::new(),
+            root: root.into(),
             chunks: x_range
                 .flat_map(|x| {
                     z_range.clone().map(move |z| {
@@ -49,6 +59,18 @@ impl Game {
         }
     }
 
+    pub fn chunks_count(&self) -> usize {
+        self.chunks.len()
+    }
+
+    pub fn add_player(&mut self, player: Player) {
+        self.players.push(player);
+    }
+
+    pub fn players(&self) -> &[Player] {
+        &self.players
+    }
+
     pub fn surface_size(&self) -> IVec3 {
         let mut min = IVec3::ZERO;
         let mut max = IVec3::ZERO;
@@ -58,7 +80,12 @@ impl Game {
             max = max.max(*chunk);
         }
 
-        (max - min) * 16 + IVec3::new(CHUNK_SIZE as i32, CHUNK_HEIGHT as i32, CHUNK_SIZE as i32)
+        (max - min) * 16
+            + IVec3::new(
+                CHUNK_SIZE as i32,
+                (CHUNK_SIZE * SUBCHUNK_COUNT) as i32,
+                CHUNK_SIZE as i32,
+            )
     }
 
     pub fn bounds(&self) -> (IVec3, IVec3) {
@@ -73,42 +100,34 @@ impl Game {
         (min * 16, max * 16)
     }
 
-    pub fn load_block(&mut self, block: Block) {
-        self.blocks.push(block);
+    pub fn load_block<P: AsRef<Path>>(&mut self, display: &WindowDisplay, path: P) {
+        self.blocks
+            .load(&mut self.textures, display, &self.root, path);
     }
 
-    pub fn load_texture<I: Into<String>, P: AsRef<Path>>(&mut self, id: I, path: P) {
-        let id: String = id.into();
-
-        if let Entry::Vacant(entry) = self.textures.entry(id) {
-            if let Ok(data) = fs::read(path) {
-                let texture = Texture2D::from_file_with_format(&data, None);
-
-                entry.insert(texture);
+    pub fn load_buitlin_blocks(&mut self, display: &WindowDisplay) {
+        if let Ok(mut root) = self.root.join("models").read_dir() {
+            while let Some(Ok(entry)) = root.next() {
+                if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
+                    self.blocks
+                        .load(&mut self.textures, display, &self.root, entry.path());
+                }
             }
         }
     }
 
-    pub fn get_texture<I: AsRef<str>>(&self, id: I) -> Option<Texture2D> {
-        self.textures.get(id.as_ref()).cloned()
+    pub fn load_texture<P: AsRef<Path>>(&mut self, display: &WindowDisplay, path: P) {
+        self.textures.load(display, path);
     }
 
-    /// Finds the chunk that contains the given position.
-    ///
-    /// Algorithm:
-    ///
-    /// We have:
-    ///
-    /// Chunks array represented as xz
-    /// [(-1; -1) (0; -1) (1; -1)]
-    /// [(-1;  0) (0;  0) (1;  0)]
-    /// [(-1;  1) (0;  1) (1;  1)]
-    ///
-    /// where (-1; -1) is 16x16x16 chunk from (-16, 0, -16) to (0, 16, 0)
-    /// and where (0; -1) is 16x16x16 chunk from (0, 0, -16) to (16, 16, 0)
-    ///
-    /// XYZ Position: (-10, 20, 10)
-    ///
+    pub fn get_texture_by_id(&self, id: usize) -> Option<&CompressedTexture2d> {
+        self.textures.get_by_id(id)
+    }
+
+    pub fn get_texture_by_name<I: AsRef<str>>(&self, name: I) -> Option<&CompressedTexture2d> {
+        self.textures.get_by_name(name.as_ref())
+    }
+
     #[must_use]
     pub fn find_chunk(&self, position: Vec3) -> Option<&Chunk> {
         self.chunks.get(&ivec3(
@@ -133,7 +152,7 @@ impl Game {
     pub fn find_block(&self, position: Vec3) -> Option<u8> {
         let chunk = self.find_chunk(position)?;
 
-        chunk.get_block_unchecked(position)
+        chunk.get_block(position)
     }
 
     #[must_use]
@@ -142,123 +161,83 @@ impl Game {
             .is_some_and(|chunk| chunk.check_for_block(position))
     }
 
-    #[must_use]
-    pub fn get_face_mesh(
-        &self,
-        face: Face,
-        position: Vec3,
-        texture: Option<Texture2D>,
-        color: Option<Color>,
-    ) -> Mesh {
-        let vertices = face.as_vertices();
-        let uv = face.as_uv();
-        let normal = face.as_normal();
+    fn compute_chunk_mesh(&self, chunk: &Chunk) -> [Mesh; 6] {
+        let origin = chunk.origin.as_vec2();
+        let mut meshes = [Mesh::EMPTY; 6];
 
-        let vertices: Vec<Vertex> = (0..4)
-            .map(|i| {
-                let (vertice_neighbours, extra_vertice_neighbours) = get_vertice_neighbours(
-                    position,
-                    vertices[i].y > 0.0,
-                    vertices[i].x > 0.0,
-                    vertices[i].z > 0.0,
-                );
+        for y in 0..(CHUNK_SIZE as u16 * SUBCHUNK_COUNT as u16) {
+            for z in 0..(CHUNK_SIZE as u16) {
+                for x in 0..(CHUNK_SIZE as u16) {
+                    let position = u16vec3(x, y, z);
+                    let float_position =
+                        position.as_vec3() + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
-                let [side1, side2, corner] =
-                    vertice_neighbours.map(|pos| self.find_block(pos).is_some());
+                    if chunk.get_block_inner(position).is_some() {
+                        for face in Face::ALL {
+                            let mesh = &mut meshes[face.normal_index()];
 
-                let ambient_occlusion = vertex_ao(
-                    side1,
-                    side2,
-                    corner,
-                    extra_vertice_neighbours.is_some_and(|vertice_neighbours| {
-                        let [side1, side2, side3] =
-                            vertice_neighbours.map(|pos| self.find_block(pos).is_some());
+                            if self.find_block(float_position + face.as_normal()).is_none() {
+                                let indices = [0, 1, 2, 2, 3, 0];
+                                let vertices = face.as_full_vertices();
 
-                        (side1 || side2) && side3
-                    }),
-                );
+                                mesh.vertices.extend((0..6).map(|vertice| {
+                                    let position = position.as_vec3()
+                                        + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
-                let color = (WHITE.to_vec().xyz() * ambient_occlusion).extend(1.0);
+                                    let (vertice_neighbours, extra_vertice_neighbours) =
+                                        get_vertice_neighbours(
+                                            position,
+                                            vertices[vertice].y > 0.0,
+                                            vertices[vertice].x > 0.0,
+                                            vertices[vertice].z > 0.0,
+                                        );
 
-                Vertex::new2(position + vertices[i], uv[i], Color::from_vec(color))
-                    .with_normal(normal.extend(ambient_occlusion))
-            })
-            .collect();
+                                    let [side1, side2, corner] = vertice_neighbours
+                                        .map(|pos| self.find_block(pos).is_some());
 
-        let indices = if vertices[1].normal.w + vertices[3].normal.w
-            > vertices[0].normal.w + vertices[2].normal.w
-        {
-            // FLIP!
-            vec![3, 2, 1, 1, 0, 3]
-        } else {
-            vec![0, 1, 2, 2, 3, 0]
-        };
+                                    let ambient_occlusion = /* if ambient_occlusion { */
+                                        vertex_ao(
+                                            side1,
+                                            side2,
+                                            corner,
+                                            extra_vertice_neighbours.is_some_and(
+                                                |vertice_neighbours| {
+                                                    let [side1, side2, side3] = vertice_neighbours
+                                                        .map(|pos| self.find_block(pos).is_some());
 
-        let mut mesh = Mesh {
-            vertices,
-            indices,
-            texture,
-        };
+                                                    (side1 || side2) && side3
+                                                },
+                                            ),
+                                        )
+                                    /* } else {
+                                        1.0
+                                    } */;
 
-        if let Some(color) = color {
-            for vertex in &mut mesh.vertices {
-                let color0 = Color::from(vertex.color);
+                                    let color: Vec3 = Color::WHITE.as_value();
+                                    let color = color * ambient_occlusion;
 
-                vertex.color =
-                    Color::from_vec((color0.to_vec().xyz() * color.to_vec().xyz()).extend(1.0))
-                        .into();
-            }
-        }
-
-        mesh
-    }
-
-    #[must_use]
-    pub fn bake_face(
-        &self,
-        position: IVec3,
-        face: Face,
-        texture: Texture2D,
-        color: Option<Color>,
-    ) -> BackedFace {
-        BackedFace {
-            position,
-            face,
-            mesh: self.get_face_mesh(face, position.as_vec3(), Some(texture), color),
-        }
-    }
-
-    #[must_use]
-    pub fn compute_world_mesh(&self) -> Vec<BackedFace> {
-        let mut meshes = Vec::new();
-
-        for chunk in self.chunks.values() {
-            for y in 0..CHUNK_HEIGHT {
-                for z in 0..CHUNK_SIZE {
-                    for x in 0..CHUNK_SIZE {
-                        let block_id = chunk.blocks[y][z][x];
-
-                        if block_id != 0 {
-                            let block = self.blocks.get(usize::from(block_id - 1)).unwrap();
-
-                            let pos = vec3(chunk.origin.x as f32, 0.0, chunk.origin.y as f32)
-                                * 16.0
-                                + Vec3::new(x as f32, y as f32, z as f32);
-
-                            let position = ivec3(chunk.origin.x, 0, chunk.origin.y) * 16
-                                + ivec3(x as i32, y as i32, z as i32);
-
-                            for face in Face::ALL {
-                                if !self.block_exists(pos + face.as_normal()) {
-                                    for (texture, color) in block.get_face_textures(face) {
-                                        meshes.push(self.bake_face(position, face, texture, color));
+                                    Vertex {
+                                        position: vertices[vertice] + position,
+                                        uv: face.as_uv()[indices[vertice]],
+                                        color: Color::from(color),
                                     }
-                                }
+                                }));
                             }
                         }
                     }
                 }
             }
+        }
+
+        meshes
+    }
+
+    #[must_use]
+    pub fn compute_world_mesh(&self) -> Vec<[Mesh; 6]> {
+        let mut meshes = Vec::new();
+
+        for chunk in self.chunks.values() {
+            meshes.push(self.compute_chunk_mesh(chunk));
         }
 
         meshes

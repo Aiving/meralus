@@ -1,17 +1,35 @@
 [workspace]
 members = ["crates/*"]
+exclude = ["external/egui-miniquad"]
 resolver = "2"
 
 [workspace.lints.clippy]
 all = "warn"
 nursery = "warn"
 pedantic = "warn"
+must_use_candidate = { level = "allow", priority = 1 }
 
 [workspace.dependencies]
 async-compression = { version = "0.4.22", features = ["zlib", "tokio"] }
-flate2 = { version = "1.1.1", features = ["zlib"] }
-meralus-meshing = { path = "./crates/meshing" }
-macroquad = { git = "https://github.com/not-fl3/macroquad.git", features = ["glam-serde"] }
+meralus-world = { path = "./crates/world" }
+meralus-engine = { path = "./crates/engine" }
+meralus-shared = { path = "./crates/shared" }
 glam = { version = "0.27.0", features = ["serde"] }
-tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros", "fs", "sync", "parking_lot", "net", "io-util"] }
+splines = { version = "4.4.2", features = ["glam"] }
+tokio = { version = "1.44.2", features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "sync",
+    "parking_lot",
+    "net",
+    "io-util",
+] }
 noise = "0.9.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+bson = "2.14.0"
+tokio-util = { version = "0.7.14", features = ["codec"] }
+tokio-serde = "0.9.0"
+futures = { version = "0.3.31", features = ["std"] }

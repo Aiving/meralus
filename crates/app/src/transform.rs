@@ -1,4 +1,4 @@
-use macroquad::math::{Affine3A, Quat, Vec3};
+use glam::{Affine3A, Quat, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {

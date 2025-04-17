@@ -1,32 +1,27 @@
-use crate::{Face, Game};
-use macroquad::{
-    camera::{Camera, Camera3D},
-    color::{BLACK, Color, hsl_to_rgb},
-    input::{KeyCode, is_key_down},
-    math::{IVec3, Vec2, Vec3, Vec4, vec2, vec3},
-    miniquad::window::screen_size,
-    ui::Vertex,
-};
+use crate::{Game, KeyboardController};
+use glam::{IVec3, Vec2, Vec3, vec3};
+use meralus_engine::{Color, KeyCode};
+use meralus_world::Face;
 
 const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.1, 0.25, 0.5, 1.0];
 
 #[must_use]
-pub fn get_movement_direction() -> Vec3 {
+pub fn get_movement_direction(keyboard: &KeyboardController) -> Vec3 {
     let mut direction = Vec3::ZERO;
 
-    if is_key_down(KeyCode::W) {
+    if keyboard.is_key_pressed(KeyCode::KeyW) {
         direction.z += 1.;
     }
 
-    if is_key_down(KeyCode::S) {
+    if keyboard.is_key_pressed(KeyCode::KeyS) {
         direction.z -= 1.;
     }
 
-    if is_key_down(KeyCode::A) {
+    if keyboard.is_key_pressed(KeyCode::KeyA) {
         direction.x -= 1.;
     }
 
-    if is_key_down(KeyCode::D) {
+    if keyboard.is_key_pressed(KeyCode::KeyD) {
         direction.x += 1.;
     }
 
@@ -79,11 +74,7 @@ pub fn get_vertice_neighbours(
                 block_position + vec3(1.0, 1.0, 0.0),
                 block_position + vec3(1.0, 1.0, 1.0),
             ],
-            Some([
-                block_position + vec3(0.0, 0.0, 1.0),
-                block_position + vec3(1.0, 0.0, 0.0),
-                block_position + vec3(0.0, 1.0, 0.0),
-            ]),
+            None,
         ),
         // RIGHT TOP    BACK
         [true, true, false] => (
@@ -92,11 +83,7 @@ pub fn get_vertice_neighbours(
                 block_position + vec3(0.0, 1.0, -1.0),
                 block_position + vec3(1.0, 1.0, -1.0),
             ],
-            Some([
-                block_position + vec3(1.0, -1.0, -1.0),
-                block_position + vec3(1.0, -1.0, -1.0),
-                block_position + vec3(0.0, 1.0, 0.0),
-            ]),
+            None,
         ),
         // RIGHT BOTTOM FRONT
         [true, false, true] => (
@@ -123,11 +110,7 @@ pub fn get_vertice_neighbours(
                 block_position + vec3(-1.0, 1.0, 0.0),
                 block_position + vec3(-1.0, 1.0, 1.0),
             ],
-            Some([
-                block_position + vec3(-1.0, -1.0, 1.0),
-                block_position + vec3(-1.0, -1.0, 1.0),
-                block_position + vec3(0.0, 1.0, 0.0),
-            ]),
+            None,
         ),
         // LEFT  TOP    BACK
         [false, true, false] => (
@@ -160,25 +143,13 @@ pub fn get_vertice_neighbours(
 }
 
 #[must_use]
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn vertex_ao(side1: bool, side2: bool, corner: bool, extra: bool) -> f32 {
     AMBIENT_OCCLUSION_VALUES[if side1 && side2 {
         1
     } else {
         3 - (usize::from(side1) + usize::from(side2) + usize::from(corner) + usize::from(extra))
     }]
-}
-
-pub trait VertexExt {
-    #[must_use]
-    fn with_normal(self, normal: Vec4) -> Self;
-}
-
-impl VertexExt for Vertex {
-    fn with_normal(mut self, normal: Vec4) -> Self {
-        self.normal = normal;
-
-        self
-    }
 }
 
 pub trait Vec3Ext {
@@ -189,35 +160,34 @@ impl Vec3Ext for Vec3 {
     fn as_color(&self) -> Color {
         for (pos, vertice) in Face::VERTICES.iter().enumerate() {
             if self == vertice {
-                return hsl_to_rgb(pos as f32 / 8.0, 1.0, 0.5);
+                return Color::from_hsl(pos as f32 / 8.0, 1.0, 0.5);
             }
         }
 
-        BLACK
+        Color::BLACK
     }
 }
 
 pub trait CameraExt {
-    fn unproject_position(&self, position: Vec3) -> Option<(Vec2, f32)>;
+    fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)>;
 }
 
-impl CameraExt for Camera3D {
-    fn unproject_position(&self, position: Vec3) -> Option<(Vec2, f32)> {
-        let (width, height) = screen_size();
-        let clip_space = self.matrix() * position.extend(1.0);
+// impl CameraExt for Camera3D {
+//     fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)> {
+//         let clip_space = self.matrix() * position.extend(1.0);
 
-        if clip_space.w <= 0.0 {
-            return None;
-        }
+//         if clip_space.w <= 0.0 {
+//             return None;
+//         }
 
-        let ndc = clip_space.truncate() / clip_space.w;
+//         let ndc = clip_space.truncate() / clip_space.w;
 
-        let x = (ndc.x + 1.0) * 0.5 * width;
-        let y = (1.0 - ndc.y) * 0.5 * height;
+//         let x = (ndc.x + 1.0) * 0.5 * width;
+//         let y = (1.0 - ndc.y) * 0.5 * height;
 
-        Some((vec2(x, y), clip_space.w))
-    }
-}
+//         Some((vec2(x, y), clip_space.w))
+//     }
+// }
 
 pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> Option<Vec3> {
     // From "A Fast Voxel Traversal Algorithm for Ray Tracing"
@@ -281,7 +251,7 @@ pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> 
         // Invoke the callback, unless we are not *yet* within the bounds of the
         // world.
         if (!(x < 0.0 || y < 0.0 || z < 0.0 || x >= bounds.x || y >= bounds.y || z >= bounds.z))
-            && (game.find_block(vec3(x, y, z)).is_some())
+            && (game.block_exists(vec3(x, y, z)))
         {
             block = Some(vec3(x, y, z));
 
