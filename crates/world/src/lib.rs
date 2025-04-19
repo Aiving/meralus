@@ -10,6 +10,6 @@ mod block;
 mod chunk;
 
 pub use self::{
-    block::{Axis, Block, BlockElement, BlockFace, Face, Faces, TextureId},
+    block::{Axis, Block, BlockElement, BlockFace, Corner, Face, Faces, TextureId},
     chunk::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT, SubChunk},
 };

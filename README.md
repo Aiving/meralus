@@ -9,7 +9,7 @@ Executable must be in the same folder as the `resources` folder.
 - Walking: `WASD`
 - Jumping: `Space`
 - Running: `Shift + W` (does not work with `S`)
-- ~~\[Debugging\] Toggle Wireframes: `T`~~
+- \[Debugging\] Toggle Wireframes: `T`
 - ~~\[Debugging\] Select a block under the player for debugging: `Ctrl + F`~~
 
 ### what does the `meralus` mean?

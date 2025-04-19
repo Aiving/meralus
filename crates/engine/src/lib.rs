@@ -285,7 +285,7 @@ impl ApplicationWindowBuilder {
             window_attrs.inner_size = Some(Size::Physical(PhysicalSize::new(size[0], size[1])));
         }
 
-        let template_builder = ConfigTemplateBuilder::new();
+        let template_builder = ConfigTemplateBuilder::new().with_multisampling(4);
         let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attrs));
 
         let (window, gl_config) = display_builder

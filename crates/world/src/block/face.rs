@@ -42,7 +42,7 @@ pub enum Corner {
 }
 
 impl Corner {
-    const fn from_array([x, y]: [f32; 2]) -> Self {
+    pub const fn from_array([x, y]: [f32; 2]) -> Self {
         let [x, y] = [x > 0.0, y > 0.0];
 
         match [x, y] {
@@ -53,7 +53,7 @@ impl Corner {
         }
     }
 
-    const fn from_vec(face: Face, vec: Vec3) -> Self {
+    pub const fn from_vec(face: Face, vec: Vec3) -> Self {
         Self::from_array(match face.as_axis() {
             Axis::X => [vec.y, vec.z], // only yz
             Axis::Y => [vec.x, vec.z], // only xz

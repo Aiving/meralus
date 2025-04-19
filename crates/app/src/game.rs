@@ -1,6 +1,6 @@
 use crate::{BlockModelLoader, TextureLoader, mesh::Mesh, vertex_ao};
 use glam::{IVec3, Vec3, ivec2, ivec3, u16vec3, vec3};
-use meralus_engine::{AsValue, Color, Vertex, WindowDisplay, glium::texture::CompressedTexture2d};
+use meralus_engine::{AsValue, Color, Vertex, WindowDisplay, glium::Texture2d};
 use meralus_world::{CHUNK_SIZE, Chunk, Face, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use std::{
@@ -121,11 +121,11 @@ impl Game {
         self.textures.load(display, path);
     }
 
-    pub fn get_texture_by_id(&self, id: usize) -> Option<&CompressedTexture2d> {
+    pub fn get_texture_by_id(&self, id: usize) -> Option<&Texture2d> {
         self.textures.get_by_id(id)
     }
 
-    pub fn get_texture_by_name<I: AsRef<str>>(&self, name: I) -> Option<&CompressedTexture2d> {
+    pub fn get_texture_by_name<I: AsRef<str>>(&self, name: I) -> Option<&Texture2d> {
         self.textures.get_by_name(name.as_ref())
     }
 
@@ -183,20 +183,36 @@ impl Game {
                                 .is_none()
                             {
                                 let mesh = &mut meshes[face.normal_index()];
-                                let vertices = face.as_vertices();
-                                let vertice_corners = face.as_vertice_corners();
 
-                                mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
-                                    let [side1, side2, corner] = vertice_corners[vertice]
-                                        .get_neighbours(face)
-                                        .map(|neighbour| {
+                                let mut vertices = face.as_vertices();
+
+                                let mut aos = face.as_vertice_corners().map(|corner| {
+                                    let [side1, side2, corner] =
+                                        corner.get_neighbours(face).map(|neighbour| {
                                             self.block_exists(position + neighbour.as_vec3())
                                         });
 
-                                    let ambient_occlusion = vertex_ao(side1, side2, corner);
+                                    vertex_ao(side1, side2, corner)
+                                });
 
+                                if aos[1] + aos[2] > aos[0] + aos[3] {
+                                    let copied_vertices = vertices;
+                                    let copied_aos = aos;
+
+                                    vertices[0] = copied_vertices[1];
+                                    vertices[1] = copied_vertices[2];
+                                    vertices[2] = copied_vertices[3];
+                                    vertices[3] = copied_vertices[0];
+
+                                    aos[0] = copied_aos[1];
+                                    aos[1] = copied_aos[2];
+                                    aos[2] = copied_aos[3];
+                                    aos[3] = copied_aos[0];
+                                }
+
+                                mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
                                     let color: Vec3 = Color::WHITE.as_value();
-                                    let color = color * ambient_occlusion;
+                                    let color = color * aos[vertice];
 
                                     Vertex {
                                         position: vertices[vertice] + position,

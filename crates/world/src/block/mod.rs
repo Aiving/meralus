@@ -2,7 +2,7 @@ mod face;
 
 use std::{collections::HashMap, path::PathBuf};
 
-pub use face::{Axis, Face};
+pub use face::{Axis, Corner, Face};
 use glam::Vec2;
 use serde::{
     Deserialize, Serialize,
@@ -141,7 +141,7 @@ pub struct BlockElement {
     #[serde(flatten)]
     pub faces: Faces,
     #[serde(default)]
-    pub rotation: i16
+    pub rotation: i16,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

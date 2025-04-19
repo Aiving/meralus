@@ -37,7 +37,8 @@ use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
     glium::{
-        BackfaceCullingMode, Depth, DepthTest, DrawParameters, Program, Surface, VertexBuffer,
+        BackfaceCullingMode, Depth, DepthTest, DrawParameters, PolygonMode, Program, Surface,
+        VertexBuffer,
         index::{NoIndices, PrimitiveType},
         uniform,
         uniforms::MagnifySamplerFilter,
@@ -106,6 +107,7 @@ struct GameLoop {
     player: PlayerController,
     draws: Vec<(VertexBuffer<Vertex>, usize)>,
     window_matrix: Mat4,
+    wireframe: bool,
 }
 
 impl KeyboardController {
@@ -119,6 +121,11 @@ impl KeyboardController {
 
     pub fn is_key_released(&self, key: KeyCode) -> bool {
         self.released.contains(&key)
+    }
+
+    pub fn clear(&mut self) {
+        self.pressed_once.clear();
+        self.released.clear();
     }
 }
 
@@ -176,6 +183,7 @@ impl State for GameLoop {
             program: Program::from_source(display, shader::VERTEX, shader::FRAGMENT, None).unwrap(),
             keyboard: KeyboardController::default(),
             window_matrix: Mat4::IDENTITY,
+            wireframe: false,
         }
     }
 
@@ -235,6 +243,10 @@ impl State for GameLoop {
     fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay) {
         // println!("DRAWING!");
 
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
+            self.wireframe = !self.wireframe;
+        }
+
         let mut frame = display.draw();
 
         frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
@@ -264,6 +276,11 @@ impl State for GameLoop {
                             ..Default::default()
                         },
                         backface_culling: BackfaceCullingMode::CullCounterClockwise,
+                        polygon_mode: if self.wireframe {
+                            PolygonMode::Line
+                        } else {
+                            PolygonMode::Fill
+                        },
                         ..Default::default()
                     },
                 )
@@ -271,6 +288,8 @@ impl State for GameLoop {
         }
 
         frame.finish().expect("failed to finish draw frame");
+
+        self.keyboard.clear();
     }
 }
 
