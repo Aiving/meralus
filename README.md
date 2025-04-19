@@ -23,6 +23,7 @@ YEAH, I'M GOOD AT NAMING THINGS.
 ### Screenshots
 
 ![image](https://github.com/user-attachments/assets/ff0cc96b-3337-4b56-9b65-64194157c937)
+![image](https://github.com/user-attachments/assets/01ec2c7d-5440-463d-985a-1f92a1b0c477)
 
 #### uhh???
 
