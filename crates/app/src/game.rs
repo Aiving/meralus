@@ -1,7 +1,8 @@
-use crate::{BlockModelLoader, TextureLoader, get_vertice_neighbours, mesh::Mesh, vertex_ao};
+use crate::{BlockModelLoader, TextureLoader, mesh::Mesh, vertex_ao};
 use glam::{IVec3, Vec3, ivec2, ivec3, u16vec3, vec3};
 use meralus_engine::{AsValue, Color, Vertex, WindowDisplay, glium::texture::CompressedTexture2d};
 use meralus_world::{CHUNK_SIZE, Chunk, Face, SUBCHUNK_COUNT};
+use owo_colors::OwoColorize;
 use std::{
     collections::HashMap,
     ops::Range,
@@ -173,52 +174,33 @@ impl Game {
                         position.as_vec3() + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
                     if chunk.get_block_inner(position).is_some() {
+                        let position = position.as_vec3()
+                            + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
+
                         for face in Face::ALL {
-                            let mesh = &mut meshes[face.normal_index()];
+                            if self
+                                .find_block(float_position + face.as_normal().as_vec3())
+                                .is_none()
+                            {
+                                let mesh = &mut meshes[face.normal_index()];
+                                let vertices = face.as_vertices();
+                                let vertice_corners = face.as_vertice_corners();
 
-                            if self.find_block(float_position + face.as_normal()).is_none() {
-                                let indices = [0, 1, 2, 2, 3, 0];
-                                let vertices = face.as_full_vertices();
+                                mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
+                                    let [side1, side2, corner] = vertice_corners[vertice]
+                                        .get_neighbours(face)
+                                        .map(|neighbour| {
+                                            self.block_exists(position + neighbour.as_vec3())
+                                        });
 
-                                mesh.vertices.extend((0..6).map(|vertice| {
-                                    let position = position.as_vec3()
-                                        + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
-
-                                    let (vertice_neighbours, extra_vertice_neighbours) =
-                                        get_vertice_neighbours(
-                                            position,
-                                            vertices[vertice].y > 0.0,
-                                            vertices[vertice].x > 0.0,
-                                            vertices[vertice].z > 0.0,
-                                        );
-
-                                    let [side1, side2, corner] = vertice_neighbours
-                                        .map(|pos| self.find_block(pos).is_some());
-
-                                    let ambient_occlusion = /* if ambient_occlusion { */
-                                        vertex_ao(
-                                            side1,
-                                            side2,
-                                            corner,
-                                            extra_vertice_neighbours.is_some_and(
-                                                |vertice_neighbours| {
-                                                    let [side1, side2, side3] = vertice_neighbours
-                                                        .map(|pos| self.find_block(pos).is_some());
-
-                                                    (side1 || side2) && side3
-                                                },
-                                            ),
-                                        )
-                                    /* } else {
-                                        1.0
-                                    } */;
+                                    let ambient_occlusion = vertex_ao(side1, side2, corner);
 
                                     let color: Vec3 = Color::WHITE.as_value();
                                     let color = color * ambient_occlusion;
 
                                     Vertex {
                                         position: vertices[vertice] + position,
-                                        uv: face.as_uv()[indices[vertice]],
+                                        uv: face.as_uv()[vertice],
                                         color: Color::from(color),
                                     }
                                 }));
@@ -238,6 +220,14 @@ impl Game {
 
         for chunk in self.chunks.values() {
             meshes.push(self.compute_chunk_mesh(chunk));
+
+            println!(
+                "[{:18}] Generated mesh for chunk at {}",
+                "INFO/Rendering".bright_green(),
+                format!("{:>2} {:>2}", chunk.origin.x, chunk.origin.y)
+                    .bright_blue()
+                    .bold()
+            );
         }
 
         meshes

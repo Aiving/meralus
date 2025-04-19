@@ -1,4 +1,4 @@
-use glam::{IVec3, U16Vec3, Vec2, Vec3, ivec3, vec2, vec3};
+use glam::{IVec3, U16Vec3, Vec2, Vec3, vec2, vec3};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -26,10 +26,62 @@ impl fmt::Display for Face {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Axis {
     X,
     Y,
     Z,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Corner {
+    LeftTop,
+    RightTop,
+    LeftBottom,
+    RightBottom,
+}
+
+impl Corner {
+    const fn from_array([x, y]: [f32; 2]) -> Self {
+        let [x, y] = [x > 0.0, y > 0.0];
+
+        match [x, y] {
+            [true, true] => Self::RightTop,
+            [true, false] => Self::RightBottom,
+            [false, true] => Self::LeftTop,
+            [false, false] => Self::LeftBottom,
+        }
+    }
+
+    const fn from_vec(face: Face, vec: Vec3) -> Self {
+        Self::from_array(match face.as_axis() {
+            Axis::X => [vec.y, vec.z], // only yz
+            Axis::Y => [vec.x, vec.z], // only xz
+            Axis::Z => [vec.x, vec.y], // only xy
+        })
+    }
+
+    // const NEIGHBOURS: [[i32; 2]; 8] = [
+    //     [-1, -1], // LEFT BOTTOM
+    //     [-1, 0],  // LEFT
+    //     [-1, 1],  // LEFT TOP
+    //     [0, -1],  // BOTTOM
+    //     [0, 1],   // TOP
+    //     [1, -1],  // RIGHT BOTTOM
+    //     [1, 0],   // RIGHT
+    //     [1, 1],   // RIGHT TOP
+    // ];
+
+    pub fn get_neighbours(self, face: Face) -> [IVec3; 3] {
+        let neighbours = face.get_neighbours();
+
+        match self {
+            Self::LeftTop => [neighbours[1], neighbours[4], neighbours[2]],
+            Self::RightTop => [neighbours[6], neighbours[4], neighbours[7]],
+            Self::LeftBottom => [neighbours[1], neighbours[3], neighbours[0]],
+            Self::RightBottom => [neighbours[6], neighbours[3], neighbours[5]],
+        }
+    }
 }
 
 impl Face {
@@ -53,6 +105,44 @@ impl Face {
         vec3(1.0, 1.0, 0.0), // 7 RIGHT TOP    BACK
     ];
 
+    const NEIGHBOURS: [[i32; 2]; 8] = [
+        [-1, -1], // LEFT BOTTOM
+        [-1, 0],  // LEFT
+        [-1, 1],  // LEFT TOP
+        [0, -1],  // BOTTOM
+        [0, 1],   // TOP
+        [1, -1],  // RIGHT BOTTOM
+        [1, 0],   // RIGHT
+        [1, 1],   // RIGHT TOP
+    ];
+
+    #[must_use]
+    pub fn get_neighbours(self) -> [IVec3; 8] {
+        let mut normal = self.as_normal();
+        let axis = self.as_axis();
+
+        match axis {
+            Axis::X => Self::NEIGHBOURS.map(|neighbour| {
+                normal.y = neighbour[0];
+                normal.z = neighbour[1];
+
+                normal
+            }),
+            Axis::Y => Self::NEIGHBOURS.map(|neighbour| {
+                normal.x = neighbour[0];
+                normal.z = neighbour[1];
+
+                normal
+            }),
+            Axis::Z => Self::NEIGHBOURS.map(|neighbour| {
+                normal.x = neighbour[0];
+                normal.y = neighbour[1];
+
+                normal
+            }),
+        }
+    }
+
     pub const fn normal_index(self) -> usize {
         match self {
             Self::Left => 0,
@@ -64,32 +154,21 @@ impl Face {
         }
     }
 
-    pub const fn world_to_sample(&self, axis: i32, x: i32, y: i32) -> IVec3 {
-        match self {
-            Self::Top => ivec3(x, axis + 1, y),
-            Self::Bottom => ivec3(x, axis, y),
-            Self::Left => ivec3(axis, y, x),
-            Self::Right => ivec3(axis + 1, y, x),
-            Self::Front => ivec3(x, y, axis),
-            Self::Back => ivec3(x, y, axis + 1),
-        }
-    }
-
-    pub const fn reverse_order(&self) -> bool {
-        matches!(self, Self::Top | Self::Right | Self::Front)
-    }
-
     #[must_use]
-    pub fn from_axis_value(axis: Axis, value: f32) -> Self {
-        match (axis, value) {
-            (Axis::X, 1.0) => Self::Right,
-            (Axis::X, 0.0) => Self::Left,
-            (Axis::Y, 1.0) => Self::Top,
-            (Axis::Y, 0.0) => Self::Bottom,
-            (Axis::Z, 1.0) => Self::Front,
-            (Axis::Z, 0.0) => Self::Back,
-            _ => unreachable!(),
+    pub const fn from_axis_value(axis: Axis, is_positive: bool) -> Self {
+        match (axis, is_positive) {
+            (Axis::X, true) => Self::Right,
+            (Axis::X, false) => Self::Left,
+            (Axis::Y, true) => Self::Top,
+            (Axis::Y, false) => Self::Bottom,
+            (Axis::Z, true) => Self::Front,
+            (Axis::Z, false) => Self::Back,
         }
+    }
+
+    pub fn as_vertice_corners(self) -> [Corner; 4] {
+        self.as_vertices()
+            .map(|vertice| Corner::from_vec(self, vertice))
     }
 
     #[must_use]
@@ -121,69 +200,15 @@ impl Face {
             ],
             Self::Front => [
                 Self::VERTICES[1],
-                Self::VERTICES[3],
-                Self::VERTICES[2],
                 Self::VERTICES[0],
+                Self::VERTICES[2],
+                Self::VERTICES[3],
             ],
             Self::Back => [
                 Self::VERTICES[5],
                 Self::VERTICES[7],
                 Self::VERTICES[6],
                 Self::VERTICES[4],
-            ],
-        }
-    }
-
-    #[must_use]
-    pub const fn as_full_vertices(self) -> [Vec3; 6] {
-        match self {
-            Self::Top => [
-                Self::VERTICES[2],
-                Self::VERTICES[6],
-                Self::VERTICES[7],
-                Self::VERTICES[7],
-                Self::VERTICES[3],
-                Self::VERTICES[2],
-            ],
-            Self::Bottom => [
-                Self::VERTICES[1],
-                Self::VERTICES[5],
-                Self::VERTICES[4],
-                Self::VERTICES[4],
-                Self::VERTICES[0],
-                Self::VERTICES[1],
-            ],
-            Self::Left => [
-                Self::VERTICES[4],
-                Self::VERTICES[6],
-                Self::VERTICES[2],
-                Self::VERTICES[2],
-                Self::VERTICES[0],
-                Self::VERTICES[4],
-            ],
-            Self::Right => [
-                Self::VERTICES[1],
-                Self::VERTICES[3],
-                Self::VERTICES[7],
-                Self::VERTICES[7],
-                Self::VERTICES[5],
-                Self::VERTICES[1],
-            ],
-            Self::Front => [
-                Self::VERTICES[1],
-                Self::VERTICES[3],
-                Self::VERTICES[2],
-                Self::VERTICES[2],
-                Self::VERTICES[0],
-                Self::VERTICES[1],
-            ],
-            Self::Back => [
-                Self::VERTICES[5],
-                Self::VERTICES[7],
-                Self::VERTICES[6],
-                Self::VERTICES[6],
-                Self::VERTICES[4],
-                Self::VERTICES[5],
             ],
         }
     }
@@ -213,14 +238,26 @@ impl Face {
     }
 
     #[must_use]
-    pub const fn as_normal(self) -> Vec3 {
+    pub const fn as_normal(self) -> IVec3 {
         match self {
-            Self::Top => Vec3::Y,
-            Self::Bottom => Vec3::NEG_Y,
-            Self::Right => Vec3::X,
-            Self::Left => Vec3::NEG_X,
-            Self::Front => Vec3::Z,
-            Self::Back => Vec3::NEG_Z,
+            Self::Top => IVec3::Y,
+            Self::Bottom => IVec3::NEG_Y,
+            Self::Right => IVec3::X,
+            Self::Left => IVec3::NEG_X,
+            Self::Front => IVec3::Z,
+            Self::Back => IVec3::NEG_Z,
+        }
+    }
+
+    pub const fn is_positive(self) -> bool {
+        matches!(self, Self::Top | Self::Right | Self::Front)
+    }
+
+    pub const fn as_axis(self) -> Axis {
+        match self {
+            Self::Top | Self::Bottom => Axis::Y,
+            Self::Left | Self::Right => Axis::X,
+            Self::Front | Self::Back => Axis::Z,
         }
     }
 
@@ -236,5 +273,17 @@ impl Face {
         }
 
         position
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Face;
+
+    #[test]
+    fn test_face_corners() {
+        for face in Face::ALL {
+            println!("{:#?}", face.as_vertice_corners());
+        }
     }
 }

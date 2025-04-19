@@ -1,4 +1,4 @@
-use crate::{Game, get_vertice_neighbours, mesh::Mesh, vertex_ao};
+use crate::{Game, mesh::Mesh, vertex_ao};
 
 use super::{block::BlockLoader, texture::TextureLoader};
 use glam::{Vec2, Vec3};
@@ -18,7 +18,7 @@ pub struct BlockModelFace {
 impl BlockModelFace {
     pub fn culled(&self, game: &Game, position: Vec3) -> bool {
         self.cull_face
-            .is_some_and(|cull_face| game.block_exists(position + cull_face.as_normal()))
+            .is_some_and(|cull_face| game.block_exists(position + cull_face.as_normal().as_vec3()))
     }
 
     pub fn as_mesh(
@@ -30,32 +30,18 @@ impl BlockModelFace {
     ) -> Mesh {
         let vertices = self.face.as_vertices();
         let uv = self.uv;
-        // let normal = self.face.as_normal();
+        let vertice_corners = self.face.as_vertice_corners();
 
         let vertices: Vec<Vertex> = (0..4)
             .map(|i| {
-                let (vertice_neighbours, extra_vertice_neighbours) = get_vertice_neighbours(
-                    position,
-                    vertices[i].y > 0.0,
-                    vertices[i].x > 0.0,
-                    vertices[i].z > 0.0,
-                );
-
-                let [side1, side2, corner] =
-                    vertice_neighbours.map(|pos| game.find_block(pos).is_some());
+                let [side1, side2, corner] = vertice_corners[i]
+                .get_neighbours(self.face)
+                .map(|neighbour| {
+                    game.block_exists(position + neighbour.as_vec3())
+                });
 
                 let ambient_occlusion = if ambient_occlusion {
-                    vertex_ao(
-                        side1,
-                        side2,
-                        corner,
-                        extra_vertice_neighbours.is_some_and(|vertice_neighbours| {
-                            let [side1, side2, side3] =
-                                vertice_neighbours.map(|pos| game.find_block(pos).is_some());
-
-                            (side1 || side2) && side3
-                        }),
-                    )
+                    vertex_ao(side1, side2, corner)
                 } else {
                     1.0
                 };

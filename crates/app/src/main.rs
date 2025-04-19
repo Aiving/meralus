@@ -28,8 +28,7 @@ pub use self::{
     player::PlayerController,
     transform::Transform,
     util::{
-        CameraExt, Vec3Ext, get_movement_direction, get_rotation_directions,
-        get_vertice_neighbours, raycast, vertex_ao,
+        AsColor, CameraExt, get_movement_direction, get_rotation_directions, raycast, vertex_ao,
     },
 };
 use clap::Parser;
@@ -38,7 +37,7 @@ use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
     glium::{
-        Depth, DepthTest, DrawParameters, Program, Surface, VertexBuffer,
+        BackfaceCullingMode, Depth, DepthTest, DrawParameters, Program, Surface, VertexBuffer,
         index::{NoIndices, PrimitiveType},
         uniform,
         uniforms::MagnifySamplerFilter,
@@ -106,6 +105,7 @@ struct GameLoop {
     camera: Camera3D,
     player: PlayerController,
     draws: Vec<(VertexBuffer<Vertex>, usize)>,
+    window_matrix: Mat4,
 }
 
 impl KeyboardController {
@@ -141,7 +141,7 @@ impl State for GameLoop {
         println!(
             "[{:18}] Generated {} meshes for chunks",
             "INFO/Rendering".bright_green(),
-            world_mesh.len().bright_blue().bold()
+            (world_mesh.len() * 6).bright_blue().bold()
         );
 
         for meshes in world_mesh {
@@ -175,11 +175,21 @@ impl State for GameLoop {
             player,
             program: Program::from_source(display, shader::VERTEX, shader::FRAGMENT, None).unwrap(),
             keyboard: KeyboardController::default(),
+            window_matrix: Mat4::IDENTITY,
         }
     }
 
-    fn handle_window_resize(&mut self, _: &ActiveEventLoop, size: UVec2) {
+    fn handle_window_resize(&mut self, _: &ActiveEventLoop, size: UVec2, scale_factor: f64) {
         let size = size.as_vec2();
+
+        self.window_matrix = Mat4::orthographic_rh_gl(
+            0.,
+            size.x / scale_factor as f32,
+            size.y / scale_factor as f32,
+            0.,
+            -1.,
+            1.,
+        );
 
         self.camera.aspect = size.x / size.y;
     }
@@ -237,6 +247,7 @@ impl State for GameLoop {
             let uniforms = uniform! {
                 matrix: matrix.to_cols_array_2d(),
                 tex: self.game.get_texture_by_id(*texture_id).unwrap().sampled().magnify_filter(MagnifySamplerFilter::Nearest),
+                with_tex: true,
             };
 
             // println!("trying to render");
@@ -252,6 +263,7 @@ impl State for GameLoop {
                             write: true,
                             ..Default::default()
                         },
+                        backface_culling: BackfaceCullingMode::CullCounterClockwise,
                         ..Default::default()
                     },
                 )

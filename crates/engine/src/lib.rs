@@ -97,6 +97,12 @@ impl AsValue<[u8; 4]> for Color {
 }
 
 impl Color {
+    pub const RED: Self = Self([255, 0, 0, 255]);
+    pub const GREEN: Self = Self([0, 255, 0, 255]);
+    pub const BLUE: Self = Self([0, 0, 255, 255]);
+    pub const YELLOW: Self = Self([255, 255, 0, 255]);
+    pub const BROWN: Self = Self([165, 42, 42, 255]);
+    pub const PURPLE: Self = Self([128, 0, 128, 255]);
     pub const WHITE: Self = Self([255, 255, 255, 255]);
     pub const BLACK: Self = Self([0, 0, 0, 255]);
 
@@ -186,7 +192,13 @@ pub type WindowDisplay = Display<WindowSurface>;
 pub trait State {
     fn new(display: &WindowDisplay) -> Self;
 
-    fn handle_window_resize(&mut self, event_loop: &ActiveEventLoop, size: UVec2) {}
+    fn handle_window_resize(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        size: UVec2,
+        scale_factor: f64,
+    ) {
+    }
     fn handle_keyboard_modifiers(&mut self, event_loop: &ActiveEventLoop, position: [f64; 2]) {}
     fn handle_keyboard_input(&mut self, event_loop: &ActiveEventLoop, event: KeyEvent) {}
     fn handle_mouse_motion(&mut self, event_loop: &ActiveEventLoop, position: Vec2) {}
@@ -379,6 +391,7 @@ impl<T: State> ApplicationHandler for Application<T> {
                 window.state.handle_window_resize(
                     event_loop,
                     uvec2(physical_size.width, physical_size.height),
+                    window.window.scale_factor(),
                 );
             }),
             WindowEvent::KeyboardInput { event, .. } => {

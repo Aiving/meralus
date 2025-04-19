@@ -43,120 +43,33 @@ pub fn get_rotation_directions(yaw: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
 }
 
 #[must_use]
-pub fn get_vertice_neighbours(
-    block_position: Vec3,
-    positive_y: bool,
-    positive_x: bool,
-    positive_z: bool,
-) -> ([Vec3; 3], Option<[Vec3; 3]>) {
-    // x right
-    // y top
-    // z front
-    // [t t t]
-    //
-    // 0 0 0
-    //
-    //
-    // [1, 1,  0]
-    // [0, 1, -1]
-    // [1, 1, -1]
-    //
-    // x --- Y x --- Y X --- y
-    // |     | |     | |     |
-    // | RIG | | TOP | | FRO |
-    // |     | |     | |     |
-    // w --- z w --- z w --- z
-    match [positive_x, positive_y, positive_z] {
-        // RIGHT TOP    FRONT
-        [true, true, true] => (
-            [
-                block_position + vec3(0.0, 1.0, 1.0),
-                block_position + vec3(1.0, 1.0, 0.0),
-                block_position + vec3(1.0, 1.0, 1.0),
-            ],
-            None,
-        ),
-        // RIGHT TOP    BACK
-        [true, true, false] => (
-            [
-                block_position + vec3(1.0, 1.0, 0.0),
-                block_position + vec3(0.0, 1.0, -1.0),
-                block_position + vec3(1.0, 1.0, -1.0),
-            ],
-            None,
-        ),
-        // RIGHT BOTTOM FRONT
-        [true, false, true] => (
-            [
-                block_position - vec3(-1.0, 1.0, 0.0),
-                block_position - vec3(0.0, 1.0, -1.0),
-                block_position - vec3(-1.0, 1.0, -1.0),
-            ],
-            None,
-        ),
-        // RIGHT BOTTOM BACK
-        [true, false, false] => (
-            [
-                block_position - vec3(0.0, 1.0, 1.0),
-                block_position - vec3(-1.0, 1.0, 0.0),
-                block_position - vec3(-1.0, 1.0, 1.0),
-            ],
-            None,
-        ),
-        // LEFT  TOP    FRONT
-        [false, true, true] => (
-            [
-                block_position + vec3(0.0, 1.0, 1.0),
-                block_position + vec3(-1.0, 1.0, 0.0),
-                block_position + vec3(-1.0, 1.0, 1.0),
-            ],
-            None,
-        ),
-        // LEFT  TOP    BACK
-        [false, true, false] => (
-            [
-                block_position + vec3(-1.0, 1.0, 0.0),
-                block_position + vec3(0.0, 1.0, -1.0),
-                block_position + vec3(-1.0, 1.0, -1.0),
-            ],
-            None,
-        ),
-        // LEFT  BOTTOM FRONT
-        [false, false, true] => (
-            [
-                block_position - vec3(1.0, 1.0, 0.0),
-                block_position - vec3(0.0, 1.0, -1.0),
-                block_position - vec3(1.0, 1.0, -1.0),
-            ],
-            None,
-        ),
-        // LEFT  BOTTOM BACK
-        [false, false, false] => (
-            [
-                block_position - vec3(1.0, 1.0, 0.0),
-                block_position - vec3(0.0, 1.0, 1.0),
-                block_position - vec3(1.0, 1.0, 1.0),
-            ],
-            None,
-        ),
-    }
-}
-
-#[must_use]
 #[allow(clippy::fn_params_excessive_bools)]
-pub fn vertex_ao(side1: bool, side2: bool, corner: bool, extra: bool) -> f32 {
+pub fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     AMBIENT_OCCLUSION_VALUES[if side1 && side2 {
-        1
+        0
     } else {
-        3 - (usize::from(side1) + usize::from(side2) + usize::from(corner) + usize::from(extra))
+        3 - (usize::from(side1) + usize::from(side2) + usize::from(corner))
     }]
 }
 
-pub trait Vec3Ext {
+pub trait AsColor {
     fn as_color(&self) -> Color;
 }
 
-impl Vec3Ext for Vec3 {
+impl AsColor for Face {
+    fn as_color(&self) -> Color {
+        match self {
+            Self::Top => Color::RED,
+            Self::Bottom => Color::GREEN,
+            Self::Left => Color::BLUE,
+            Self::Right => Color::YELLOW,
+            Self::Front => Color::BROWN,
+            Self::Back => Color::PURPLE,
+        }
+    }
+}
+
+impl AsColor for Vec3 {
     fn as_color(&self) -> Color {
         for (pos, vertice) in Face::VERTICES.iter().enumerate() {
             if self == vertice {

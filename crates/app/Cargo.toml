@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# macroquad = { workspace = true }
 glam = { workspace = true }
 async-compression = { workspace = true }
 meralus-world = { workspace = true }
@@ -13,12 +12,9 @@ meralus-shared = { workspace = true }
 noise = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
-# egui-miniquad = { path = "../../external/egui-miniquad" }
 clap = { version = "4.5.35", features = ["derive"] }
 image = "0.25.6"
 owo-colors = "4.2.0"
-lyon = "1.0.1"
-# egui = "0.31.1"
 
 [lints]
 workspace = true
