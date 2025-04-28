@@ -1,4 +1,4 @@
-/* 
+/*
 pub struct EGui {
     egui_miniquad: Option<EguiMq>,
     input_subscriber_id: Option<usize>,
@@ -35,7 +35,7 @@ impl EGui {
         if let Some(input_subscriber_id) = self.input_subscriber_id {
             repeat_all_miniquad_input(self, input_subscriber_id);
         }
-        
+
         if let Some(egui) = self.egui_miniquad.as_mut() {
             egui.run(gl.quad_context, f);
         }

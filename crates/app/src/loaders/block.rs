@@ -1,5 +1,4 @@
 use super::texture::TextureLoader;
-use meralus_engine::WindowDisplay;
 use meralus_world::{Block, TextureId};
 use std::fs;
 use std::path::Path;
@@ -9,7 +8,6 @@ pub struct BlockLoader;
 impl BlockLoader {
     pub fn load<P: AsRef<Path>, R: AsRef<Path>>(
         textures: &mut TextureLoader,
-        display: &WindowDisplay,
         root: R,
         path: P,
     ) -> Option<Block> {
@@ -20,7 +18,6 @@ impl BlockLoader {
         for TextureId(mod_name, path) in block.textures.values() {
             if mod_name == "game" {
                 textures.load(
-                    display,
                     root.as_ref()
                         .join("textures")
                         .join(path)

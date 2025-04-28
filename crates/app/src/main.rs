@@ -37,11 +37,12 @@ use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
     glium::{
-        BackfaceCullingMode, Depth, DepthTest, DrawParameters, PolygonMode, Program, Surface,
+        BackfaceCullingMode, Depth, DepthTest, DrawParameters, PolygonMode, Program, Rect, Surface,
         VertexBuffer,
         index::{NoIndices, PrimitiveType},
+        pixel_buffer::PixelBuffer,
         uniform,
-        uniforms::MagnifySamplerFilter,
+        uniforms::{MagnifySamplerFilter, MinifySamplerFilter},
         winit::{event_loop::ControlFlow, keyboard::PhysicalKey},
     },
 };
@@ -131,7 +132,7 @@ impl KeyboardController {
 
 impl State for GameLoop {
     fn new(display: &WindowDisplay) -> Self {
-        let mut game = Game::new("./resources", 12723, -4..4, -4..4);
+        let mut game = Game::new(display, "./resources", 12723, -2..2, -2..2);
 
         println!(
             "[{:18}] Generated {} chunks",
@@ -139,7 +140,9 @@ impl State for GameLoop {
             game.chunks_count().bright_blue().bold(),
         );
 
-        game.load_buitlin_blocks(display);
+        game.load_buitlin_blocks();
+
+        game.generate_mipmaps(4);
 
         let mut draws = Vec::new();
 
@@ -166,7 +169,7 @@ impl State for GameLoop {
         );
 
         let player = PlayerController {
-            position: vec3(2.0, 200.0, 2.0),
+            position: vec3(2.0, 275.0, 2.0),
             ..Default::default()
         };
 
@@ -241,28 +244,84 @@ impl State for GameLoop {
     }
 
     fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay) {
-        // println!("DRAWING!");
-
         if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
             self.wireframe = !self.wireframe;
         }
 
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyL) {
+            let atlas = self.game.get_texture_atlas();
+
+            for level in 0..atlas.get_mipmap_levels() {
+                if let Some(mipmap) = atlas.mipmap(level) {
+                    let [width, height] = [mipmap.width(), mipmap.height()];
+                    let buffer = PixelBuffer::new_empty(display, width as usize * height as usize);
+
+                    if let Some(image) = mipmap.first_layer().into_image(None) {
+                        image.raw_read_to_pixel_buffer(
+                            &Rect {
+                                left: 0,
+                                bottom: 0,
+                                width: mipmap.width(),
+                                height: mipmap.height(),
+                            },
+                            &buffer,
+                        );
+                    }
+
+                    let pixels = {
+                        let mut v = Vec::with_capacity(buffer.len() * 4);
+
+                        for (a, b, c, d) in buffer.read().unwrap() {
+                            v.push(a);
+                            v.push(b);
+                            v.push(c);
+                            v.push(d);
+                        }
+
+                        v
+                    };
+
+                    if let Some(image_buffer) =
+                        image::ImageBuffer::from_raw(mipmap.width(), mipmap.height(), pixels)
+                    {
+                        let image = image::DynamicImage::ImageRgba8(image_buffer).flipv();
+
+                        match image.save(format!("atlas_{level}.png")) {
+                            Ok(()) => {
+                                println!(
+                                    "[{:16}] Successfully saved atlas (mipmap level: {}, size: {})",
+                                    "INFO/AtlasManager".bright_green(),
+                                    level.to_string().bright_blue(),
+                                    format!("{width}x{height}").bright_blue()
+                                );
+                            }
+                            Err(error) => {
+                                println!(
+                                    "[{:16}] Failed to save atlas (mipmap level: {}, size: {}): {error}",
+                                    " ERR/AtlasManager".bright_red(),
+                                    level.to_string().bright_blue(),
+                                    format!("{width}x{height}").bright_blue()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut frame = display.draw();
 
-        frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+        frame.clear_color_and_depth((120.0 / 255.0, 167.0 / 255.0, 1.0, 1.0), 1.0);
 
-        // println!("draws: {}", self.draws.len());
-
-        for (vertex_buffer, /* index_buffer, */ texture_id) in &self.draws {
+        for (vertex_buffer, _) in &self.draws {
             let matrix = self.camera.matrix();
 
             let uniforms = uniform! {
                 matrix: matrix.to_cols_array_2d(),
-                tex: self.game.get_texture_by_id(*texture_id).unwrap().sampled().magnify_filter(MagnifySamplerFilter::Nearest),
+                tex: self.game.get_texture_atlas().sampled().minify_filter(MinifySamplerFilter::NearestMipmapLinear).magnify_filter(MagnifySamplerFilter::Nearest),
                 with_tex: true,
             };
 
-            // println!("trying to render");
             frame
                 .draw(
                     vertex_buffer,

@@ -1,5 +1,5 @@
-use crate::{Game, KeyboardController};
-use glam::{IVec3, Vec2, Vec3, vec3};
+use crate::{Camera3D, Game, KeyboardController};
+use glam::{IVec3, Vec2, Vec3, vec2, vec3};
 use meralus_engine::{Color, KeyCode};
 use meralus_world::Face;
 
@@ -85,22 +85,22 @@ pub trait CameraExt {
     fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)>;
 }
 
-// impl CameraExt for Camera3D {
-//     fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)> {
-//         let clip_space = self.matrix() * position.extend(1.0);
+impl CameraExt for Camera3D {
+    fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)> {
+        let clip_space = self.matrix() * position.extend(1.0);
 
-//         if clip_space.w <= 0.0 {
-//             return None;
-//         }
+        if clip_space.w <= 0.0 {
+            return None;
+        }
 
-//         let ndc = clip_space.truncate() / clip_space.w;
+        let ndc = clip_space.truncate() / clip_space.w;
 
-//         let x = (ndc.x + 1.0) * 0.5 * width;
-//         let y = (1.0 - ndc.y) * 0.5 * height;
+        let x = (ndc.x + 1.0) * 0.5 * width;
+        let y = (1.0 - ndc.y) * 0.5 * height;
 
-//         Some((vec2(x, y), clip_space.w))
-//     }
-// }
+        Some((vec2(x, y), clip_space.w))
+    }
+}
 
 pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> Option<Vec3> {
     // From "A Fast Voxel Traversal Algorithm for Ray Tracing"

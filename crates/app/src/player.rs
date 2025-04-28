@@ -1,5 +1,6 @@
 use crate::{
-    Camera3D, Game, KeyboardController, get_movement_direction, get_rotation_directions, raycast,
+    Camera3D, Game, KeyboardController, game::Aabb, get_movement_direction,
+    get_rotation_directions, raycast,
 };
 use glam::{FloatExt, Vec2, Vec3, vec3};
 use meralus_engine::KeyCode;
@@ -14,6 +15,7 @@ pub struct PlayerController {
     pub up: Vec3,
     // END CAMERA
     pub velocity: Vec3,
+    pub is_on_ground: bool,
 }
 
 impl Default for PlayerController {
@@ -39,6 +41,7 @@ impl Default for PlayerController {
             right,
             up,
             velocity: Vec3::ZERO,
+            is_on_ground: false,
         }
     }
 }
@@ -48,13 +51,7 @@ impl PlayerController {
     pub const MOUSE_SENSE: f32 = 0.05;
     pub const LOOK_SPEED: f32 = 0.1;
     pub const GRAVITY: f32 = 9.81 * 1.5;
-    pub const AFFECTED_BY_PHYSICS: bool = true;
-
-    #[must_use]
-    pub fn is_on_ground(&self, game: &Game) -> bool {
-        // raycast(game, self.position.as_ivec3(), Vec3::NEG_Y, 2.0).is_some()
-        game.block_exists(self.position.mul_add(Vec3::ONE, Vec3::NEG_Y * 2.0))
-    }
+    pub const AFFECTED_BY_PHYSICS: bool = false;
 
     pub fn handle_physics(
         &mut self,
@@ -81,11 +78,11 @@ impl PlayerController {
         self.velocity.x = velocity.x;
         self.velocity.z = velocity.z;
 
-        if !self.is_on_ground(game) && Self::AFFECTED_BY_PHYSICS {
+        if !self.is_on_ground && Self::AFFECTED_BY_PHYSICS {
             self.velocity.y -= Self::GRAVITY * delta;
         }
 
-        if self.is_on_ground(game) && self.velocity.y <= 0.0 && Self::AFFECTED_BY_PHYSICS {
+        if self.is_on_ground && self.velocity.y <= 0.0 && Self::AFFECTED_BY_PHYSICS {
             self.velocity.y = 0.0;
         }
 
@@ -99,27 +96,72 @@ impl PlayerController {
         //     }
         // }
 
-        if keyboard.is_key_pressed(KeyCode::Space)
-            && (self.is_on_ground(game) || !Self::AFFECTED_BY_PHYSICS)
+        if keyboard.is_key_pressed(KeyCode::Space) && self.is_on_ground && Self::AFFECTED_BY_PHYSICS
         {
             self.velocity.y = 5.0;
+        } else if keyboard.is_key_pressed(KeyCode::Space) && !Self::AFFECTED_BY_PHYSICS {
+            self.position.y += 0.5;
+        }
+
+        if keyboard.is_key_pressed(KeyCode::ControlLeft) && !Self::AFFECTED_BY_PHYSICS {
+            self.position.y -= 0.5;
         }
 
         self.move_and_collide(game, delta);
     }
 
     pub fn move_and_collide(&mut self, game: &Game, delta: f32) {
-        let position = self.position + (self.velocity * delta);
+        let mut remaining_movement = self.velocity * delta;
+        let mut actual_movement = [0.0; 3];
 
-        if game.find_chunk(position).is_some() {
-            let have_under_block = game.find_block(position - Vec3::Y).is_some();
-
-            if !have_under_block {
-                self.position.y = position.y;
+        for axis in 0..3 {
+            if remaining_movement[axis] == 0.0 {
+                continue;
             }
 
-            self.position.x = position.x;
-            self.position.z = position.z;
+            let mut test_pos = self.position;
+
+            test_pos[axis] += remaining_movement[axis];
+
+            let test_aabb = Aabb::new(
+                test_pos - vec3(0.5, 2.0, 0.5),
+                test_pos + vec3(0.5, 0.0, 0.5),
+            );
+
+            if game.collides(test_aabb) {
+                self.is_on_ground = game.get_colliders(test_pos, test_aabb).bottom.is_some();
+
+                // Try smaller steps for more precision
+                let mut step = remaining_movement[axis].abs();
+                let direction = remaining_movement[axis].signum();
+
+                #[allow(clippy::while_float)]
+                while step > 0.001 {
+                    test_pos[axis] = direction.mul_add(step, self.position[axis]);
+
+                    let test_aabb = Aabb::new(
+                        test_pos - vec3(0.5, 2.0, 0.5),
+                        test_pos + vec3(0.5, 0.0, 0.5),
+                    );
+
+                    if !game.collides(test_aabb) {
+                        self.position[axis] = test_pos[axis];
+
+                        actual_movement[axis] += direction * step;
+                        remaining_movement[axis] -= direction * step;
+
+                        break;
+                    }
+
+                    step /= 2.0;
+                }
+            } else {
+                self.position[axis] = test_pos[axis];
+                self.is_on_ground = false;
+
+                actual_movement[axis] = remaining_movement[axis];
+                remaining_movement[axis] = 0.0;
+            }
         }
     }
 

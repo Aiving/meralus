@@ -216,7 +216,7 @@ impl Face {
     #[must_use]
     pub const fn as_uv(self) -> [Vec2; 4] {
         match self {
-            Self::Top => [
+            Self::Top | Self::Front => [
                 vec2(0.0, 0.0),
                 vec2(1.0, 0.0),
                 vec2(1.0, 1.0),
@@ -228,11 +228,17 @@ impl Face {
                 vec2(1.0, 0.0),
                 vec2(0.0, 0.0),
             ],
-            Self::Left | Self::Right | Self::Front | Self::Back => [
-                vec2(0.0, 1.0),
-                vec2(0.0, 0.0),
+            Self::Right => [
                 vec2(1.0, 0.0),
                 vec2(1.0, 1.0),
+                vec2(0.0, 1.0),
+                vec2(0.0, 0.0),
+            ],
+            Self::Left | Self::Back => [
+                vec2(0.0, 0.0),
+                vec2(0.0, 1.0),
+                vec2(1.0, 1.0),
+                vec2(1.0, 0.0),
             ],
         }
     }

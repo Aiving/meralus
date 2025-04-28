@@ -1,5 +1,5 @@
 use glam::{IVec2, U16Vec3, Vec3, vec3};
-use noise::{NoiseFn, Perlin};
+use noise::{Fbm, NoiseFn, Perlin};
 use owo_colors::OwoColorize;
 use std::io::{self, Read};
 
@@ -205,7 +205,8 @@ impl Chunk {
 
     #[must_use]
     pub fn from_perlin_noise(origin: IVec2, seed: u32) -> Self {
-        let generator = Perlin::new(seed);
+        let generator = Fbm::<Perlin>::new(seed);
+
         let position = origin.as_vec2() * CHUNK_SIZE as f32;
         // let spline = Spline::from_iter([
         //     Key::new(-1.0, 100.0, Interpolation::Cosine),
@@ -220,6 +221,8 @@ impl Chunk {
 
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
+                let mut highest_block = 0;
+
                 for y in 0..(CHUNK_SIZE * SUBCHUNK_COUNT) {
                     let value = generator.get([
                         (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
@@ -229,8 +232,12 @@ impl Chunk {
 
                     if value > 0.0 {
                         empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
+
+                        highest_block = highest_block.max(y);
                     }
                 }
+
+                empty.set_block_unchecked(vec3(x as f32, highest_block as f32, z as f32), 2);
             }
         }
 

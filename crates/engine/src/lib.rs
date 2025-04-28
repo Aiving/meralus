@@ -35,6 +35,9 @@ pub use winit::{
 pub struct Vertex {
     pub position: Vec3,
     pub uv: Vec2,
+    pub overlay_uv: Vec2,
+    pub overlay_color: Color,
+    pub have_overlay: u8,
     pub color: Color,
 }
 
@@ -47,24 +50,36 @@ pub trait AsValue<T> {
 /// Color type represented as RGBA
 pub struct Color([u8; 4]);
 
-impl AsValue<Vec4> for Color {
-    fn as_value(&self) -> Vec4 {
-        Vec4::new(
+impl AsValue<[f32; 4]> for Color {
+    fn as_value(&self) -> [f32; 4] {
+        [
             f32::from(self.0[0]) / 255.0,
             f32::from(self.0[1]) / 255.0,
             f32::from(self.0[2]) / 255.0,
             f32::from(self.0[3]) / 255.0,
-        )
+        ]
+    }
+}
+
+impl AsValue<[f32; 3]> for Color {
+    fn as_value(&self) -> [f32; 3] {
+        [
+            f32::from(self.0[0]) / 255.0,
+            f32::from(self.0[1]) / 255.0,
+            f32::from(self.0[2]) / 255.0,
+        ]
+    }
+}
+
+impl AsValue<Vec4> for Color {
+    fn as_value(&self) -> Vec4 {
+        Vec4::from_array(self.as_value())
     }
 }
 
 impl AsValue<Vec3> for Color {
     fn as_value(&self) -> Vec3 {
-        Vec3::new(
-            f32::from(self.0[0]) / 255.0,
-            f32::from(self.0[1]) / 255.0,
-            f32::from(self.0[2]) / 255.0,
-        )
+        Vec3::from_array(self.as_value())
     }
 }
 
@@ -99,6 +114,7 @@ impl AsValue<[u8; 4]> for Color {
 impl Color {
     pub const RED: Self = Self([255, 0, 0, 255]);
     pub const GREEN: Self = Self([0, 255, 0, 255]);
+    pub const LIGHT_GREEN: Self = Self([122, 250, 129, 255]);
     pub const BLUE: Self = Self([0, 0, 255, 255]);
     pub const YELLOW: Self = Self([255, 255, 0, 255]);
     pub const BROWN: Self = Self([165, 42, 42, 255]);
@@ -144,6 +160,13 @@ impl Color {
 
         Self::from(vec3(red, green, blue))
     }
+
+    #[must_use]
+    pub fn multiply_rgb(self, factor: f32) -> Self {
+        let value: Vec3 = self.as_value();
+
+        (value * factor).into()
+    }
 }
 
 impl Vertex {
@@ -163,6 +186,27 @@ impl Vertex {
             false,
         ),
         (
+            Cow::Borrowed("overlay_uv"),
+            glium::__glium_offset_of!(Vertex, overlay_uv),
+            -1,
+            AttributeType::F32F32,
+            false,
+        ),
+        (
+            Cow::Borrowed("overlay_color"),
+            glium::__glium_offset_of!(Vertex, overlay_color),
+            -1,
+            AttributeType::U8U8U8U8,
+            false,
+        ),
+        (
+            Cow::Borrowed("have_overlay"),
+            glium::__glium_offset_of!(Vertex, have_overlay),
+            -1,
+            AttributeType::U8,
+            false,
+        ),
+        (
             Cow::Borrowed("color"),
             glium::__glium_offset_of!(Vertex, color),
             -1,
@@ -171,10 +215,28 @@ impl Vertex {
         ),
     ];
 
-    pub const fn from_vec(position: Vec3, uv: Vec2, color: Color) -> Self {
+    pub const fn from_vec(
+        position: Vec3,
+        uv: Vec2,
+        color: Color,
+        overlay_uv: Option<Vec2>,
+        overlay_color: Option<Color>,
+        have_overlay: bool,
+    ) -> Self {
         Self {
             position,
             uv,
+            overlay_uv: if let Some(overlay_uv) = overlay_uv {
+                overlay_uv
+            } else {
+                Vec2::ZERO
+            },
+            overlay_color: if let Some(overlay_color) = overlay_color {
+                overlay_color
+            } else {
+                Color::WHITE
+            },
+            have_overlay: if have_overlay { 1 } else { 0 },
             color,
         }
     }
@@ -285,7 +347,7 @@ impl ApplicationWindowBuilder {
             window_attrs.inner_size = Some(Size::Physical(PhysicalSize::new(size[0], size[1])));
         }
 
-        let template_builder = ConfigTemplateBuilder::new().with_multisampling(4);
+        let template_builder = ConfigTemplateBuilder::new();
         let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attrs));
 
         let (window, gl_config) = display_builder
