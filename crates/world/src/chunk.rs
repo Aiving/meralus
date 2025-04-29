@@ -221,8 +221,6 @@ impl Chunk {
 
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
-                let mut highest_block = 0;
-
                 for y in 0..(CHUNK_SIZE * SUBCHUNK_COUNT) {
                     let value = generator.get([
                         (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
@@ -231,13 +229,24 @@ impl Chunk {
                     ]);
 
                     if value > 0.0 {
-                        empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
+                        if y == (CHUNK_SIZE * SUBCHUNK_COUNT - 1) {
+                            empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                        } else {
+                            let value = generator.get([
+                                (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
+                                (y + 1).min((CHUNK_SIZE * SUBCHUNK_COUNT) - 1) as f64
+                                    / (CHUNK_SIZE * SUBCHUNK_COUNT) as f64,
+                                (f64::from(position.y) + z as f64) / CHUNK_SIZE as f64,
+                            ]);
 
-                        highest_block = highest_block.max(y);
+                            if value <= 0.0 {
+                                empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                            } else {
+                                empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
+                            }
+                        }
                     }
                 }
-
-                empty.set_block_unchecked(vec3(x as f32, highest_block as f32, z as f32), 2);
             }
         }
 

@@ -305,6 +305,10 @@ impl Game {
         self.textures.get_atlas()
     }
 
+    pub fn get_texture_count(&self) -> usize {
+        self.textures.get_texture_count()
+    }
+
     pub fn get_texture<I: AsRef<str>>(&self, name: I) -> Option<(Vec2, Vec2)> {
         self.textures.get_texture(name.as_ref())
     }
@@ -360,7 +364,7 @@ impl Game {
                         let position = position.as_vec3()
                             + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
-                        for model_face in model.faces.values() {
+                        for model_face in &model.faces {
                             if self
                                 .find_block(float_position + model_face.face.as_normal().as_vec3())
                                 .is_none()
@@ -410,9 +414,7 @@ impl Game {
                                         }
                                         .multiply_rgb(aos[vertice]),
                                         have_overlay: model_face.overlay_uv.is_some().into(),
-                                        color: if model.name == "grass_block"
-                                            && model_face.face == Face::Top
-                                        {
+                                        color: if model.name == "grass_block" && model_face.tint {
                                             Color::LIGHT_GREEN
                                         } else {
                                             Color::WHITE

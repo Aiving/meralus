@@ -5,13 +5,14 @@ use glam::{Vec2, Vec3};
 use meralus_engine::{AsValue, Color, Vertex};
 use meralus_world::{Face, Faces};
 use owo_colors::OwoColorize;
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct BlockModelFace {
     pub texture_id: usize,
     pub face: Face,
     pub cull_face: Option<Face>,
+    pub tint: bool,
     pub uv: [Vec2; 4],
     pub overlay_uv: Option<[Vec2; 4]>,
     pub overlay_color: Option<Color>,
@@ -91,7 +92,7 @@ impl BlockModelFace {
 pub struct BlockModel {
     pub name: String,
     pub ambient_occlusion: bool,
-    pub faces: HashMap<Face, BlockModelFace>,
+    pub faces: Vec<BlockModelFace>,
 }
 
 #[derive(Debug, Default)]
@@ -125,74 +126,52 @@ impl BlockModelLoader {
         let name = path.file_stem()?.to_string_lossy();
         let block = BlockLoader::load(textures, root.as_ref(), path)?;
 
-        let mut faces = <HashMap<Face, BlockModelFace>>::new();
+        let mut faces = Vec::new();
 
         for element in block.elements {
             match element.faces {
                 Faces::All(data) => {
                     for face in Face::ALL {
-                        faces
-                            .entry(face)
-                            .and_modify(|model| {
-                                let texture = block.textures.get(&data.texture).unwrap();
-                                let (offset, scale) = textures
-                                    .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
-                                    .unwrap();
+                        faces.push({
+                            let texture = block.textures.get(&data.texture).unwrap();
+                            let (offset, scale) = textures
+                                .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
+                                .unwrap();
 
-                                let overlay_uv = face.as_uv().map(|uv| offset + uv * (scale));
+                            let uv = face.as_uv().map(|uv| offset + uv * (scale));
 
-                                model.overlay_uv = Some(overlay_uv);
-                            })
-                            .or_insert_with(|| {
-                                let texture = block.textures.get(&data.texture).unwrap();
-                                let (offset, scale) = textures
-                                    .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
-                                    .unwrap();
-
-                                let uv = face.as_uv().map(|uv| offset + uv * (scale));
-
-                                BlockModelFace {
-                                    texture_id: 0,
-                                    face,
-                                    cull_face: Some(face),
-                                    uv,
-                                    overlay_uv: None,
-                                    overlay_color: None,
-                                }
-                            });
+                            BlockModelFace {
+                                texture_id: 0,
+                                face,
+                                cull_face: Some(face),
+                                uv,
+                                tint: data.tint,
+                                overlay_uv: None,
+                                overlay_color: None,
+                            }
+                        });
                     }
                 }
                 Faces::Unique(face_map) => {
                     for (face, data) in face_map {
-                        faces
-                            .entry(face)
-                            .and_modify(|model| {
-                                let texture = block.textures.get(&data.texture).unwrap();
-                                let (offset, scale) = textures
-                                    .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
-                                    .unwrap();
+                        faces.push({
+                            let texture = block.textures.get(&data.texture).unwrap();
+                            let (offset, scale) = textures
+                                .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
+                                .unwrap();
 
-                                let overlay_uv = face.as_uv().map(|uv| offset + uv * (scale));
+                            let uv = face.as_uv().map(|uv| offset + uv * (scale));
 
-                                model.overlay_uv = Some(overlay_uv);
-                            })
-                            .or_insert_with(|| {
-                                let texture = block.textures.get(&data.texture).unwrap();
-                                let (offset, scale) = textures
-                                    .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
-                                    .unwrap();
-
-                                let uv = face.as_uv().map(|uv| offset + uv * (scale));
-
-                                BlockModelFace {
-                                    texture_id: 0,
-                                    face,
-                                    cull_face: Some(face),
-                                    uv,
-                                    overlay_uv: None,
-                                    overlay_color: None,
-                                }
-                            });
+                            BlockModelFace {
+                                texture_id: 0,
+                                face,
+                                cull_face: Some(face),
+                                uv,
+                                tint: data.tint,
+                                overlay_uv: None,
+                                overlay_color: None,
+                            }
+                        });
                     }
                 }
             }

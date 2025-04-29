@@ -1,6 +1,9 @@
 use crate::{Camera3D, Game, KeyboardController};
 use glam::{IVec3, Vec2, Vec3, vec2, vec3};
-use meralus_engine::{Color, KeyCode};
+use meralus_engine::{
+    Color, KeyCode,
+    glium::{buffer::ReadError, pixel_buffer::PixelBuffer},
+};
 use meralus_world::Face;
 
 const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.1, 0.25, 0.5, 1.0];
@@ -78,6 +81,26 @@ impl AsColor for Vec3 {
         }
 
         Color::BLACK
+    }
+}
+
+pub trait BufferExt {
+    fn read_flatten(&self) -> Result<Vec<u8>, ReadError>;
+}
+
+impl BufferExt for PixelBuffer<(u8, u8, u8, u8)> {
+    fn read_flatten(&self) -> Result<Vec<u8>, ReadError> {
+        let mut pixels = Vec::with_capacity(self.len() * 4);
+        let buffer = self.read()?;
+
+        for (a, b, c, d) in buffer {
+            pixels.push(a);
+            pixels.push(b);
+            pixels.push(c);
+            pixels.push(d);
+        }
+
+        Ok(pixels)
     }
 }
 

@@ -13,6 +13,7 @@ use serde::{
 pub struct BlockFace {
     pub texture: String,
     pub uv: Option<Vec2>,
+    pub tint: bool,
     pub cull_face: Option<Face>,
 }
 
@@ -52,6 +53,7 @@ impl<'de> Deserialize<'de> for BlockFace {
                         "texture" => {
                             texture.replace(map.next_value()?);
                         }
+                        "tint" => value.tint = map.next_value()?,
                         "uv" => value.uv = Some(map.next_value()?),
                         "cull_face" => value.cull_face = Some(map.next_value()?),
                         field => Err(Error::unknown_field(field, &["texture", "uv", "cull_face"]))?,

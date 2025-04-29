@@ -2,7 +2,7 @@
     "textures": {
         "#top": "game:grass_block_top",
         "#bottom": "game:dirt",
-        "#side": "game:grass_block_side",
+        "#side": "game:dirt",
         "#side-overlay": "game:grass_block_side_overlay"
     },
     "elements": [
@@ -10,7 +10,8 @@
             "faces": {
                 "top": {
                     "texture": "#top",
-                    "cull_face": "top"
+                    "cull_face": "top",
+                    "tint": true
                 },
                 "bottom": {
                     "texture": "#bottom",
@@ -38,19 +39,23 @@
             "faces": {
                 "left": {
                     "texture": "#side-overlay",
-                    "cull_face": "left"
+                    "cull_face": "left",
+                    "tint": true
                 },
                 "right": {
                     "texture": "#side-overlay",
-                    "cull_face": "right"
+                    "cull_face": "right",
+                    "tint": true
                 },
                 "front": {
                     "texture": "#side-overlay",
-                    "cull_face": "front"
+                    "cull_face": "front",
+                    "tint": true
                 },
                 "back": {
                     "texture": "#side-overlay",
-                    "cull_face": "back"
+                    "cull_face": "back",
+                    "tint": true
                 }
             }
         }

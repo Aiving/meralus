@@ -54,6 +54,10 @@ impl TextureLoader {
         &self.atlas
     }
 
+    pub fn get_texture_count(&self) -> usize {
+        self.texture_map.len()
+    }
+
     pub const fn alpha_blend(mut one: u32, mut two: u32) -> (u8, u8, u8, u8) {
         let mut i = (one as i32 & -16777216) as u32 >> 24 & 255;
         let mut j = (two as i32 & -16777216) as u32 >> 24 & 255;
@@ -175,6 +179,11 @@ impl TextureLoader {
 
         if let Some(name) = path.file_stem() {
             let name = name.to_string_lossy();
+            let name = name.to_string();
+
+            if self.texture_map.contains_key(&name) {
+                return;
+            }
 
             match image::ImageReader::open(path).and_then(image::ImageReader::with_guessed_format) {
                 Ok(value) => {
@@ -194,7 +203,7 @@ impl TextureLoader {
 
                         self.atlas.write(offset, image);
 
-                        self.texture_map.insert(name.to_string(), offset);
+                        self.texture_map.insert(name, offset);
 
                         self.next_texture_offset = uvec2(offset.left + offset.width, offset.bottom);
                     }

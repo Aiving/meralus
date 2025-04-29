@@ -37,8 +37,8 @@ use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
     glium::{
-        BackfaceCullingMode, Depth, DepthTest, DrawParameters, PolygonMode, Program, Rect, Surface,
-        VertexBuffer,
+        BackfaceCullingMode, Blend, Depth, DepthTest, DrawParameters, PolygonMode, Program, Rect,
+        Surface, VertexBuffer,
         index::{NoIndices, PrimitiveType},
         pixel_buffer::PixelBuffer,
         uniform,
@@ -48,8 +48,9 @@ use meralus_engine::{
 };
 use meralus_shared::{IncomingPacket, OutgoingPacket, wrap_stream};
 use owo_colors::OwoColorize;
-use std::{collections::HashSet, net::SocketAddrV4};
+use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
 use tokio::net::TcpStream;
+use util::BufferExt;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -251,6 +252,13 @@ impl State for GameLoop {
         if self.keyboard.is_key_pressed_once(KeyCode::KeyL) {
             let atlas = self.game.get_texture_atlas();
 
+            println!(
+                "[{:18}] Saving atlas ({} packed textures) with {} mipmap levels...",
+                "INFO/AtlasManager".bright_green(),
+                self.game.get_texture_count().bright_blue(),
+                atlas.get_mipmap_levels().bright_blue()
+            );
+
             for level in 0..atlas.get_mipmap_levels() {
                 if let Some(mipmap) = atlas.mipmap(level) {
                     let [width, height] = [mipmap.width(), mipmap.height()];
@@ -268,41 +276,38 @@ impl State for GameLoop {
                         );
                     }
 
-                    let pixels = {
-                        let mut v = Vec::with_capacity(buffer.len() * 4);
-
-                        for (a, b, c, d) in buffer.read().unwrap() {
-                            v.push(a);
-                            v.push(b);
-                            v.push(c);
-                            v.push(d);
-                        }
-
-                        v
-                    };
+                    let pixels = buffer.read_flatten().unwrap();
 
                     if let Some(image_buffer) =
                         image::ImageBuffer::from_raw(mipmap.width(), mipmap.height(), pixels)
                     {
                         let image = image::DynamicImage::ImageRgba8(image_buffer).flipv();
 
-                        match image.save(format!("atlas_{level}.png")) {
-                            Ok(()) => {
+                        if fs::exists("debug").is_ok_and(Not::not) {
+                            if let Err(error) = fs::create_dir("debug") {
                                 println!(
-                                    "[{:16}] Successfully saved atlas (mipmap level: {}, size: {})",
-                                    "INFO/AtlasManager".bright_green(),
-                                    level.to_string().bright_blue(),
-                                    format!("{width}x{height}").bright_blue()
-                                );
-                            }
-                            Err(error) => {
-                                println!(
-                                    "[{:16}] Failed to save atlas (mipmap level: {}, size: {}): {error}",
+                                    "[{:18}] Failed to create debug directory: {error}",
                                     " ERR/AtlasManager".bright_red(),
-                                    level.to_string().bright_blue(),
-                                    format!("{width}x{height}").bright_blue()
                                 );
+
+                                break;
                             }
+                        }
+
+                        if let Err(error) = image.save(format!("debug/atlas_{level}.png")) {
+                            println!(
+                                "[{:18}] Failed to save atlas (mipmap level: {}, size: {}): {error}",
+                                " ERR/AtlasManager".bright_red(),
+                                level.to_string().bright_blue(),
+                                format!("{width}x{height}").bright_blue()
+                            );
+                        } else {
+                            println!(
+                                "[{:18}] Successfully saved atlas (mipmap level: {}, size: {})",
+                                "INFO/AtlasManager".bright_green(),
+                                level.to_string().bright_blue(),
+                                format!("{width}x{height}").bright_blue()
+                            );
                         }
                     }
                 }
@@ -340,6 +345,7 @@ impl State for GameLoop {
                         } else {
                             PolygonMode::Fill
                         },
+                        blend: Blend::alpha_blending(),
                         ..Default::default()
                     },
                 )

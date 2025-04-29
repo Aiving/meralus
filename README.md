@@ -10,6 +10,7 @@ Executable must be in the same folder as the `resources` folder.
 - Jumping: `Space`
 - Running: `Shift + W` (does not work with `S`)
 - \[Debugging\] Toggle Wireframes: `T`
+- \[Debugging\] Save texture atlas (with mipmaps): `L`
 - ~~\[Debugging\] Select a block under the player for debugging: `Ctrl + F`~~
 
 ### what does the `meralus` mean?
