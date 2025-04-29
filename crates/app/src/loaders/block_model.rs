@@ -101,7 +101,8 @@ pub struct BlockModelLoader {
 }
 
 impl BlockModelLoader {
-    pub const fn count(&self) -> usize {
+    #[allow(clippy::missing_const_for_fn)] // for MSRV compatibility
+    pub fn count(&self) -> usize {
         self.models.len()
     }
 

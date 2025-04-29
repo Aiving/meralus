@@ -1,10 +1,14 @@
-# Meralus: yet another attempt to create minecraft-like game
+# Meralus
 
-### Some tips
+[![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT_or_Apache_2.0-634f7d.svg?style=for-the-badge)](LICENSE-APACHE)
+
+A voxel game that visually copies Minecraft as much as possible.
+
+## Running
 
 Executable must be in the same folder as the `resources` folder.
 
-### Binds
+## Binds
 
 - Walking: `WASD`
 - Jumping: `Space`
@@ -13,21 +17,18 @@ Executable must be in the same folder as the `resources` folder.
 - \[Debugging\] Save texture atlas (with mipmaps): `L`
 - ~~\[Debugging\] Select a block under the player for debugging: `Ctrl + F`~~
 
-### what does the `meralus` mean?
-
-`mera` (`मेरा`) is `mine` in Hindi, and `alus` is `craft` in Finnish.
-
-YEAH, I'M GOOD AT NAMING THINGS.
-
-![img](https://c.tenor.com/Bl6dhMPkMs0AAAAd/tenor.gif)
-
-### Screenshots
+## Screenshots
 
 ![image](https://github.com/user-attachments/assets/6940581e-9ee6-4a02-9840-c1dd82525aee)
 
-#### uhh???
+## MSRV
 
-lol weird physics (i suck at math (and shaders too))
+The Minimum Supported Rust Version is currently **1.85.1**.
 
-~~btw just a thought, but maybe i'll switch from `macroquad` to something else (either `bevy` or my own wrapper over opengl)~~ **WIP!**
+## License
 
+Dual-licensed to be compatible with the Rust project.
+
+Code is licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This project may not be copied, modified, or distributed except according to those terms.
+
+Graphics assets are created by Mojang and by using them you automatically accept [EULA](https://www.minecraft.net/en-us/eula).
