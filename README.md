@@ -8,6 +8,8 @@ A voxel game that visually copies Minecraft as much as possible.
 
 Executable must be in the same folder as the `resources` folder.
 
+Note: animation player is disabled by default, so you need to press `R` to enable it to get past the loading screen. xd.
+
 ## Binds
 
 - Walking: `WASD`
