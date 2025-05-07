@@ -7,24 +7,21 @@
     clippy::missing_panics_doc
 )]
 
-mod block;
+mod blocks;
 mod game;
 mod loaders;
 mod mesh;
 mod player;
+mod renderers;
 mod transform;
 mod ui;
 mod util;
 
-mod shader {
-    pub const VERTEX: &str = include_str!("../resources/shaders/common_vertex.glsl");
-    pub const FRAGMENT: &str = include_str!("../resources/shaders/common_fragment.glsl");
-}
-
 pub use self::{
-    block::Block,
     game::{BackedFace, Game, GameState},
-    loaders::{BlockLoader, BlockModel, BlockModelFace, BlockModelLoader, TextureLoader},
+    loaders::{
+        BakedBlockModel, BakedBlockModelLoader, Block, BlockManager, BlockModelFace, TextureLoader,
+    },
     player::PlayerController,
     transform::Transform,
     util::{
@@ -32,25 +29,38 @@ pub use self::{
     },
 };
 use clap::Parser;
-use futures::{SinkExt, StreamExt};
-use glam::{Mat4, UVec2, Vec2, Vec3, vec3};
+use glam::{IVec2, Mat4, UVec2, Vec2, Vec3, vec3};
+use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode, RestartBehaviour};
 use meralus_engine::{
-    ActiveEventLoop, Application, EventLoop, KeyCode, State, Vertex, WindowDisplay,
+    ActiveEventLoop, Application, EventLoop, KeyCode, State, WindowDisplay,
     glium::{
-        BackfaceCullingMode, Blend, Depth, DepthTest, DrawParameters, PolygonMode, Program, Rect,
-        Surface, VertexBuffer,
-        index::{NoIndices, PrimitiveType},
+        Blend, BlendingFunction, LinearBlendingFactor, Rect, Surface,
         pixel_buffer::PixelBuffer,
-        uniform,
-        uniforms::{MagnifySamplerFilter, MinifySamplerFilter},
-        winit::{event_loop::ControlFlow, keyboard::PhysicalKey},
+        winit::{event::KeyEvent, event_loop::ControlFlow, keyboard::PhysicalKey},
     },
 };
-use meralus_shared::{IncomingPacket, OutgoingPacket, wrap_stream};
+use meralus_shared::{Color, Point2D, Rect2D, Size2D};
+use meralus_world::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
+use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
+use std::fmt::Write;
 use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
-use tokio::net::TcpStream;
+use ui::UiContext;
 use util::BufferExt;
+
+const TEXT_COLOR: Color = Color::from_hsl(135., 0.48, 0.45);
+const BG_COLOR: Color = Color::new(126, 230, 152, 255);
+const BLENDING: Blend = Blend {
+    color: BlendingFunction::Addition {
+        source: LinearBlendingFactor::SourceAlpha,
+        destination: LinearBlendingFactor::OneMinusSourceAlpha,
+    },
+    alpha: BlendingFunction::Addition {
+        source: LinearBlendingFactor::One,
+        destination: LinearBlendingFactor::OneMinusSourceAlpha,
+    },
+    constant_value: (0.0, 0.0, 0.0, 0.0),
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -62,34 +72,33 @@ struct Args {
 }
 
 #[derive(Debug)]
-pub struct Camera3D {
+pub struct Camera {
     pub position: Vec3,
     pub target: Vec3,
     pub up: Vec3,
-    pub fovy: f32,
-    pub aspect: f32,
-
+    pub fov: f32,
+    pub aspect_ratio: f32,
     pub z_near: f32,
     pub z_far: f32,
 }
 
-impl Default for Camera3D {
+impl Default for Camera {
     fn default() -> Self {
         Self {
             position: vec3(0., -10., 0.),
             target: vec3(0., 0., 0.),
-            aspect: 1024.0 / 768.0,
+            aspect_ratio: 1024.0 / 768.0,
             up: vec3(0., 0., 1.),
-            fovy: 45.0_f32.to_radians(),
+            fov: 55.0_f32.to_radians(),
             z_near: 0.01,
             z_far: 10000.0,
         }
     }
 }
 
-impl Camera3D {
+impl Camera {
     fn matrix(&self) -> Mat4 {
-        Mat4::perspective_rh_gl(self.fovy, self.aspect, self.z_near, self.z_far)
+        Mat4::perspective_rh_gl(self.fov, self.aspect_ratio, self.z_near, self.z_far)
             * Mat4::look_at_rh(self.position, self.target, self.up)
     }
 }
@@ -101,15 +110,27 @@ pub struct KeyboardController {
     released: HashSet<KeyCode>,
 }
 
+struct Debugging {
+    overlay: bool,
+    wireframe: bool,
+    draw_borders: bool,
+    chunk_borders: Vec<Line>,
+    vertices: usize,
+    draw_calls: usize,
+}
+
 struct GameLoop {
     game: Game,
     keyboard: KeyboardController,
-    program: Program,
-    camera: Camera3D,
+    camera: Camera,
     player: PlayerController,
-    draws: Vec<(VertexBuffer<Vertex>, usize)>,
     window_matrix: Mat4,
-    wireframe: bool,
+    debugging: Debugging,
+    player_controllable: bool,
+    animation_player: AnimationPlayer,
+    text_renderer: TextRenderer,
+    voxel_renderer: VoxelRenderer,
+    shape_renderer: ShapeRenderer,
 }
 
 impl KeyboardController {
@@ -129,23 +150,79 @@ impl KeyboardController {
         self.pressed_once.clear();
         self.released.clear();
     }
+
+    pub fn handle_keyboard_input(&mut self, event: &KeyEvent) {
+        if let PhysicalKey::Code(code) = event.physical_key {
+            if event.state.is_pressed() {
+                if !event.repeat {
+                    self.pressed_once.insert(code);
+
+                    if self.pressed.contains(&code) {
+                        self.pressed.remove(&code);
+                    }
+                }
+
+                self.pressed.insert(code);
+            } else {
+                self.pressed.remove(&code);
+                self.released.insert(code);
+            }
+        }
+    }
+}
+
+fn chunk_borders(origin: IVec2) -> [Line; 12] {
+    let origin = origin.as_vec2() * CHUNK_SIZE as f32;
+    let chunk_size = CHUNK_SIZE as f32;
+    let chunk_height = CHUNK_SIZE as f32 * SUBCHUNK_COUNT as f32;
+
+    [
+        [[0.0, 0.0, 0.0], [0.0, chunk_height, 0.0]],
+        [[chunk_size, 0.0, 0.0], [chunk_size, chunk_height, 0.0]],
+        [[0.0, 0.0, chunk_size], [0.0, chunk_height, chunk_size]],
+        [
+            [chunk_size, 0.0, chunk_size],
+            [chunk_size, chunk_height, chunk_size],
+        ],
+        [[0.0, 0.0, 0.0], [chunk_size, 0.0, 0.0]],
+        [[0.0, 0.0, 0.0], [0.0, 0.0, chunk_size]],
+        [[chunk_size, 0.0, 0.0], [chunk_size, 0.0, chunk_size]],
+        [[0.0, 0.0, chunk_size], [chunk_size, 0.0, chunk_size]],
+        [[0.0, chunk_height, 0.0], [chunk_size, chunk_height, 0.0]],
+        [[0.0, chunk_height, 0.0], [0.0, chunk_height, chunk_size]],
+        [
+            [chunk_size, chunk_height, 0.0],
+            [chunk_size, chunk_height, chunk_size],
+        ],
+        [
+            [0.0, chunk_height, chunk_size],
+            [chunk_size, chunk_height, chunk_size],
+        ],
+    ]
+    .map(|[start, end]| {
+        Line::new(
+            Vec3::new(origin.x, 0.0, origin.y) + Vec3::from_array(start),
+            Vec3::new(origin.x, 0.0, origin.y) + Vec3::from_array(end),
+            Color::BLUE,
+        )
+    })
 }
 
 impl State for GameLoop {
     fn new(display: &WindowDisplay) -> Self {
-        let mut game = Game::new(display, "./resources", 12723, -2..2, -2..2);
+        let mut game = Game::new(display, "./resources", -2..2, -2..2);
+
+        game.load_buitlin_blocks();
+        game.generate_mipmaps(4);
+
+        game.generate_world(12723);
+        game.set_block_light(vec3(-13.0, 217.0, 0.0), 15);
 
         println!(
             "[{:18}] Generated {} chunks",
             "INFO/WorldGen".bright_green(),
-            game.chunks_count().bright_blue().bold(),
+            game.chunk_manager.len().bright_blue().bold(),
         );
-
-        game.load_buitlin_blocks();
-
-        game.generate_mipmaps(4);
-
-        let mut draws = Vec::new();
 
         let world_mesh = game.compute_world_mesh();
 
@@ -155,39 +232,66 @@ impl State for GameLoop {
             (world_mesh.len() * 6).bright_blue().bold()
         );
 
-        for meshes in world_mesh {
-            for mesh in meshes {
-                draws.push((
-                    VertexBuffer::new(display, &mesh.vertices).unwrap(),
-                    mesh.texture_id,
-                ));
-            }
-        }
-
-        println!(
-            "[{:18}] All DrawCall's for OpenGL created",
-            "INFO/Rendering".bright_green(),
-        );
-
         let player = PlayerController {
             position: vec3(2.0, 275.0, 2.0),
             ..Default::default()
         };
 
+        let mut text_renderer = TextRenderer::new(display, 4096).unwrap();
+
+        text_renderer.add_font(display, "default", FONT);
+        text_renderer.add_font(display, "default_bold", FONT_BOLD);
+
+        let mut animation_player = AnimationPlayer::default();
+
+        animation_player.add(
+            "loading-screen",
+            Animation::new(1.0, 0.0, 1000, Curve::LINEAR, RepeatMode::Once),
+        );
+
+        animation_player.add(
+            "xd",
+            Animation::new(
+                0.0,
+                192.0,
+                400,
+                Curve::EASE_IN_OUT_EXPO,
+                RepeatMode::Infinite,
+            )
+            .with_restart_behaviour(RestartBehaviour::EndValue),
+        );
+
         Self {
+            keyboard: KeyboardController::default(),
+            animation_player,
+            text_renderer,
+            voxel_renderer: VoxelRenderer::new(display, world_mesh),
+            shape_renderer: ShapeRenderer::new(display),
+            window_matrix: Mat4::IDENTITY,
+            debugging: Debugging {
+                overlay: false,
+                wireframe: false,
+                draw_borders: false,
+                chunk_borders: game.chunk_manager.chunks().fold(
+                    Vec::new(),
+                    |mut lines, Chunk { origin, .. }| {
+                        lines.extend(chunk_borders(*origin));
+
+                        lines
+                    },
+                ),
+                vertices: 0,
+                draw_calls: 0,
+            },
             game,
-            draws,
-            camera: Camera3D {
+            camera: Camera {
                 position: player.position,
                 up: player.up,
                 target: player.position + player.front,
                 ..Default::default()
             },
             player,
-            program: Program::from_source(display, shader::VERTEX, shader::FRAGMENT, None).unwrap(),
-            keyboard: KeyboardController::default(),
-            window_matrix: Mat4::IDENTITY,
-            wireframe: false,
+            player_controllable: true,
         }
     }
 
@@ -203,50 +307,56 @@ impl State for GameLoop {
             1.,
         );
 
-        self.camera.aspect = size.x / size.y;
+        self.camera.aspect_ratio = size.x / size.y;
     }
 
     fn handle_keyboard_input(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _: &ActiveEventLoop,
         event: meralus_engine::glium::winit::event::KeyEvent,
     ) {
-        if let PhysicalKey::Code(code) = event.physical_key {
-            if event.state.is_pressed() {
-                self.keyboard.pressed_once.insert(code);
-
-                if !event.repeat && self.keyboard.pressed.contains(&code) {
-                    self.keyboard.pressed.remove(&code);
-                }
-
-                self.keyboard.pressed.insert(code);
-            } else {
-                if code == KeyCode::Escape {
-                    event_loop.exit();
-                }
-
-                self.keyboard.pressed.remove(&code);
-                self.keyboard.released.insert(code);
-            }
-        }
+        self.keyboard.handle_keyboard_input(&event);
     }
 
     fn handle_mouse_motion(&mut self, _: &ActiveEventLoop, mouse_delta: Vec2) {
-        self.player.handle_mouse(&mut None, &self.game, mouse_delta);
+        if self.player_controllable {
+            self.player.handle_mouse(&mut None, &self.game, mouse_delta);
+        }
     }
 
     fn fixed_update(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, delta: f32) {
-        self.player
-            .handle_physics(&self.game, &self.keyboard, &mut self.camera, delta);
+        if self.player_controllable {
+            self.player
+                .handle_physics(&self.game, &self.keyboard, &mut self.camera, delta);
 
-        self.camera.position = self.player.position;
-        self.camera.up = self.player.up;
-        self.camera.target = self.player.position + self.player.front;
+            self.camera.position = self.player.position;
+            self.camera.up = self.player.up;
+            self.camera.target = self.player.position + self.player.front;
+        }
     }
 
-    fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay) {
+    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
+        if self.keyboard.is_key_pressed_once(KeyCode::Escape) {
+            event_loop.exit();
+        }
+
+        self.animation_player.advance(delta);
+
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyR) {
+            self.animation_player.reset();
+            self.animation_player.enable();
+        }
+
         if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
-            self.wireframe = !self.wireframe;
+            self.debugging.wireframe = !self.debugging.wireframe;
+        }
+
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyO) {
+            self.debugging.overlay = !self.debugging.overlay;
+        }
+
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyB) {
+            self.debugging.draw_borders = !self.debugging.draw_borders;
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyL) {
@@ -313,43 +423,123 @@ impl State for GameLoop {
                 }
             }
         }
+    }
 
+    fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
+        self.debugging.draw_calls = 0;
+        self.debugging.vertices = 0;
+
+        let (width, height) = display.get_framebuffer_dimensions();
         let mut frame = display.draw();
 
         frame.clear_color_and_depth((120.0 / 255.0, 167.0 / 255.0, 1.0, 1.0), 1.0);
 
-        for (vertex_buffer, _) in &self.draws {
-            let matrix = self.camera.matrix();
+        self.voxel_renderer.render(
+            &mut frame,
+            self.camera.matrix(),
+            self.game.get_texture_atlas_sampled(),
+            self.debugging.wireframe,
+        );
 
-            let uniforms = uniform! {
-                matrix: matrix.to_cols_array_2d(),
-                tex: self.game.get_texture_atlas().sampled().minify_filter(MinifySamplerFilter::NearestMipmapLinear).magnify_filter(MagnifySamplerFilter::Nearest),
-                with_tex: true,
-            };
+        let (draw_calls, vertices) = self.voxel_renderer.get_debug_info();
 
-            frame
-                .draw(
-                    vertex_buffer,
-                    NoIndices(PrimitiveType::TrianglesList),
-                    &self.program,
-                    &uniforms,
-                    &DrawParameters {
-                        depth: Depth {
-                            test: DepthTest::IfLessOrEqual,
-                            write: true,
-                            ..Default::default()
-                        },
-                        backface_culling: BackfaceCullingMode::CullCounterClockwise,
-                        polygon_mode: if self.wireframe {
-                            PolygonMode::Line
-                        } else {
-                            PolygonMode::Fill
-                        },
-                        blend: Blend::alpha_blending(),
-                        ..Default::default()
-                    },
-                )
-                .expect("failed to draw!");
+        self.debugging.draw_calls += draw_calls;
+        self.debugging.vertices += vertices;
+
+        if self.debugging.draw_borders {
+            self.shape_renderer.set_matrix(self.camera.matrix());
+            self.shape_renderer.draw_lines(
+                &mut frame,
+                display,
+                &self.debugging.chunk_borders,
+                &mut self.debugging.draw_calls,
+                &mut self.debugging.vertices,
+            );
+            self.shape_renderer.set_default_matrix();
+        }
+
+        let animation_progress: f32 = self.animation_player.get_value("loading-screen").unwrap();
+        let xd_progress: f32 = self.animation_player.get_value("xd").unwrap();
+
+        let mut context = UiContext::new(self, display, &mut frame);
+
+        context.ui(|context, bounds| {
+            context.draw_rect(
+                Point2D::new(256.0 + xd_progress, 12.0),
+                Size2D::new(48.0, 48.0),
+                Color::new(120, 167, 255, 255),
+            );
+
+            context.fill(BG_COLOR.with_alpha(animation_progress));
+
+            let measured = context
+                .measure_text("default_bold", "Meralus", 64.0)
+                .unwrap();
+            let text_pos = Point2D::from_size((bounds.size - measured) / 2.0);
+
+            let progress_width = bounds.size.width * 0.5;
+            let progress_position = (bounds.size.width - progress_width) / 2.0;
+            let offset = Point2D::new(progress_position, text_pos.y + 12.0 + measured.height);
+
+            context.bounds(
+                Rect2D::new(bounds.origin + offset, Size2D::new(progress_width, 48.0)),
+                |context, _| {
+                    context.fill(TEXT_COLOR.with_alpha(animation_progress));
+
+                    context.padding(2.0, |context, _| {
+                        context.fill(BG_COLOR.with_alpha(animation_progress));
+
+                        context.padding(2.0, |context, bounds| {
+                            context.draw_rect(
+                                bounds.origin.into(),
+                                bounds
+                                    .size
+                                    .with_width(bounds.size.width * (1.0 - animation_progress)),
+                                TEXT_COLOR.with_alpha(animation_progress),
+                            );
+                        });
+                    });
+                },
+            );
+
+            context.draw_text(
+                text_pos,
+                "default_bold",
+                "Meralus",
+                64.0,
+                TEXT_COLOR.with_alpha(animation_progress),
+            );
+        });
+
+        context.finish();
+
+        if self.debugging.overlay {
+            self.text_renderer.render(
+                &mut frame,
+                &self.window_matrix,
+                Point2D::new(12.0, 12.0),
+                "default",
+                format!(
+                    "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:{}",
+                    display.get_free_video_memory().map_or_else(|| String::from("unknown"), util::format_bytes),
+                    self.player.position,
+                    1.0 / delta,
+                    delta * 1000.0,
+                    self.debugging.draw_calls,
+                    self.debugging.vertices,
+                    self.animation_player.animations().fold(String::new(), |mut data, (name, animation)| {
+                        let elapsed = animation.get_elapsed();
+                        let duration = animation.get_duration();
+
+                        write!(data, "\n |\n ---- #{name}: {:.1}% ({:.2}ms/{:.2}ms)", (elapsed / duration) * 100.0, elapsed * 1000.0, duration * 1000.0).unwrap();
+
+                        data
+                    })
+                ),
+                18.0,
+                TEXT_COLOR,
+                &mut self.debugging.draw_calls
+            );
         }
 
         frame.finish().expect("failed to finish draw frame");
@@ -360,26 +550,27 @@ impl State for GameLoop {
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
+    // let args = Args::parse();
 
-    if let Some(host) = args.host {
-        let stream = TcpStream::connect(host).await.unwrap();
-        let (mut stream, mut sink) = wrap_stream(stream);
+    // if let Some(host) = args.host {
+    //     let stream = TcpStream::connect(host).await.unwrap();
+    //     let (mut stream, mut sink) = wrap_stream(stream);
 
-        sink.send(IncomingPacket::PlayerConnected {
-            name: args.nickname.unwrap(),
-        })
-        .await
-        .unwrap();
+    //     sink.send(IncomingPacket::PlayerConnected {
+    //         name: args.nickname.unwrap(),
+    //     })
+    //     .await
+    //     .unwrap();
 
-        sink.send(IncomingPacket::GetPlayers).await.unwrap();
+    //     sink.send(IncomingPacket::GetPlayers).await.unwrap();
 
-        if let Some(Ok(OutgoingPacket::PlayersList { players })) = stream.next().await {
-            println!("{players:#?}");
-        }
-    }
+    //     if let Some(Ok(OutgoingPacket::PlayersList { players })) = stream.next().await {
+    //         println!("{players:#?}");
+    //     }
+    // }
 
     let mut app = Application::<GameLoop>::default();
+
     let event_loop = EventLoop::builder().build().unwrap();
 
     event_loop.set_control_flow(ControlFlow::Poll);

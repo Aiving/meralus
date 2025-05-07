@@ -4,13 +4,25 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { workspace = true }
 glam = { workspace = true }
-tokio = { workspace = true }
-bson = { workspace = true }
-tokio-util = { workspace = true }
-tokio-serde = { workspace = true }
-futures = { workspace = true }
+glamour = { workspace = true }
+serde = { workspace = true, optional = true }
+bson = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tokio-serde = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+
+[features]
+default = []
+network = [
+    "dep:serde",
+    "dep:bson",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tokio-serde",
+    "dep:futures",
+]
 
 [lints]
 workspace = true

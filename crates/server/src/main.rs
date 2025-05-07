@@ -61,7 +61,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_chunk_compressing() {
-        let chunk = Chunk::from_perlin_noise(IVec2::new(0, 0), 0);
+        let mut chunk = Chunk::new(IVec2::new(0, 0));
+
+        chunk.generate_surface(0);
+
         let serialized = chunk.serialize();
         let mut compressed = Vec::new();
 

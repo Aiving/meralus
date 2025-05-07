@@ -1,8 +1,7 @@
-use crate::{Game, mesh::Mesh, vertex_ao};
-
-use super::{block::BlockLoader, texture::TextureLoader};
+use super::{block::BlockManager, texture::TextureLoader};
+use crate::Game;
 use glam::{Vec2, Vec3};
-use meralus_engine::{AsValue, Color, Vertex};
+use meralus_shared::Color;
 use meralus_world::{Face, Faces};
 use owo_colors::OwoColorize;
 use std::path::Path;
@@ -20,93 +19,32 @@ pub struct BlockModelFace {
 
 impl BlockModelFace {
     pub fn culled(&self, game: &Game, position: Vec3) -> bool {
-        self.cull_face
-            .is_some_and(|cull_face| game.block_exists(position + cull_face.as_normal().as_vec3()))
-    }
-
-    pub fn as_mesh(
-        &self,
-        game: &Game,
-        position: Vec3,
-        color: Option<Color>,
-        ambient_occlusion: bool,
-    ) -> Mesh {
-        let vertices = self.face.as_vertices();
-        let uv = self.uv;
-        let vertice_corners = self.face.as_vertice_corners();
-
-        let vertices: Vec<Vertex> = (0..4)
-            .map(|i| {
-                let [side1, side2, corner] = vertice_corners[i]
-                    .get_neighbours(self.face)
-                    .map(|neighbour| game.block_exists(position + neighbour.as_vec3()));
-
-                let ambient_occlusion = if ambient_occlusion {
-                    vertex_ao(side1, side2, corner)
-                } else {
-                    1.0
-                };
-
-                let color: Vec3 = Color::WHITE.as_value();
-                let color = color * ambient_occlusion;
-
-                Vertex::from_vec(
-                    position + vertices[i],
-                    uv[i],
-                    Color::from(color),
-                    None,
-                    None,
-                    false,
-                )
-            })
-            .collect();
-
-        // let indices = if vertices[1].normal.w + vertices[3].normal.w
-        //     > vertices[0].normal.w + vertices[2].normal.w
-        // {
-        //     // FLIP!
-        //     vec![3, 2, 1, 1, 0, 3]
-        // } else {
-        //     vec![0, 1, 2, 2, 3, 0]
-        // };
-
-        let mut mesh = Mesh {
-            vertices,
-            indices: vec![0, 1, 2, 2, 3, 0],
-            texture_id: self.texture_id,
-        };
-
-        if let Some(color) = color.as_ref().map(AsValue::<Vec3>::as_value) {
-            for vertex in &mut mesh.vertices {
-                let color0: Vec3 = vertex.color.as_value();
-
-                vertex.color = Color::from(color0 * color);
-            }
-        }
-
-        mesh
+        self.cull_face.is_some_and(|cull_face| {
+            game.chunk_manager
+                .contains_block(position + cull_face.as_normal().as_vec3())
+        })
     }
 }
 
 #[derive(Debug)]
-pub struct BlockModel {
+pub struct BakedBlockModel {
     pub name: String,
     pub ambient_occlusion: bool,
     pub faces: Vec<BlockModelFace>,
 }
 
 #[derive(Debug, Default)]
-pub struct BlockModelLoader {
-    models: Vec<BlockModel>,
+pub struct BakedBlockModelLoader {
+    models: Vec<BakedBlockModel>,
 }
 
-impl BlockModelLoader {
+impl BakedBlockModelLoader {
     #[allow(clippy::missing_const_for_fn)] // for MSRV compatibility
     pub fn count(&self) -> usize {
         self.models.len()
     }
 
-    pub fn get(&self, value: usize) -> Option<&BlockModel> {
+    pub fn get(&self, value: usize) -> Option<&BakedBlockModel> {
         self.models.get(value)
     }
 
@@ -115,7 +53,7 @@ impl BlockModelLoader {
         textures: &mut TextureLoader,
         root: R,
         path: P,
-    ) -> Option<&BlockModel> {
+    ) -> Option<&BakedBlockModel> {
         let path = path.as_ref();
 
         println!(
@@ -125,7 +63,7 @@ impl BlockModelLoader {
         );
 
         let name = path.file_stem()?.to_string_lossy();
-        let block = BlockLoader::load(textures, root.as_ref(), path)?;
+        let block = BlockManager::load(textures, root.as_ref(), path)?;
 
         let mut faces = Vec::new();
 
@@ -178,7 +116,7 @@ impl BlockModelLoader {
             }
         }
 
-        self.models.push(BlockModel {
+        self.models.push(BakedBlockModel {
             name: name.to_string(),
             ambient_occlusion: block.ambient_occlusion,
             faces,

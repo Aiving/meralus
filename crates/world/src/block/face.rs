@@ -105,6 +105,17 @@ impl Face {
         vec3(1.0, 1.0, 0.0), // 7 RIGHT TOP    BACK
     ];
 
+    pub const BOOL_VERTICES: [[bool; 3]; 8] = [
+        [false, false, true],  // 0 LEFT  BOTTOM FRONT
+        [true, false, true],   // 1 RIGHT BOTTOM FRONT
+        [false, true, true],   // 2 LEFT  TOP    FRONT
+        [true, true, true],    // 3 RIGHT TOP    FRONT
+        [false, false, false], // 4 LEFT  BOTTOM BACK
+        [true, false, false],  // 5 RIGHT BOTTOM BACK
+        [false, true, false],  // 6 LEFT  TOP    BACK
+        [true, true, false],   // 7 RIGHT TOP    BACK
+    ];
+
     const NEIGHBOURS: [[i32; 2]; 8] = [
         [-1, -1], // LEFT BOTTOM
         [-1, 0],  // LEFT
@@ -115,6 +126,15 @@ impl Face {
         [1, 0],   // RIGHT
         [1, 1],   // RIGHT TOP
     ];
+
+    pub const fn get_light_level(self) -> f32 {
+        match self {
+            Self::Top => 1.0,
+            Self::Bottom => 0.5,
+            Self::Left | Self::Right => 0.6,
+            Self::Front | Self::Back => 0.8,
+        }
+    }
 
     #[must_use]
     pub fn get_neighbours(self) -> [IVec3; 8] {
@@ -169,6 +189,47 @@ impl Face {
     pub fn as_vertice_corners(self) -> [Corner; 4] {
         self.as_vertices()
             .map(|vertice| Corner::from_vec(self, vertice))
+    }
+
+    pub const fn as_bool_vertices(self) -> [[bool; 3]; 4] {
+        match self {
+            Self::Top => [
+                Self::BOOL_VERTICES[2],
+                Self::BOOL_VERTICES[6],
+                Self::BOOL_VERTICES[7],
+                Self::BOOL_VERTICES[3],
+            ],
+            Self::Bottom => [
+                Self::BOOL_VERTICES[1],
+                Self::BOOL_VERTICES[5],
+                Self::BOOL_VERTICES[4],
+                Self::BOOL_VERTICES[0],
+            ],
+            Self::Left => [
+                Self::BOOL_VERTICES[4],
+                Self::BOOL_VERTICES[6],
+                Self::BOOL_VERTICES[2],
+                Self::BOOL_VERTICES[0],
+            ],
+            Self::Right => [
+                Self::BOOL_VERTICES[1],
+                Self::BOOL_VERTICES[3],
+                Self::BOOL_VERTICES[7],
+                Self::BOOL_VERTICES[5],
+            ],
+            Self::Front => [
+                Self::BOOL_VERTICES[1],
+                Self::BOOL_VERTICES[0],
+                Self::BOOL_VERTICES[2],
+                Self::BOOL_VERTICES[3],
+            ],
+            Self::Back => [
+                Self::BOOL_VERTICES[5],
+                Self::BOOL_VERTICES[7],
+                Self::BOOL_VERTICES[6],
+                Self::BOOL_VERTICES[4],
+            ],
+        }
     }
 
     #[must_use]

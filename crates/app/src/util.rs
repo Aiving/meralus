@@ -1,9 +1,10 @@
-use crate::{Camera3D, Game, KeyboardController};
+use crate::{Camera, Game, KeyboardController};
 use glam::{IVec3, Vec2, Vec3, vec2, vec3};
 use meralus_engine::{
-    Color, KeyCode,
+    KeyCode,
     glium::{buffer::ReadError, pixel_buffer::PixelBuffer},
 };
+use meralus_shared::Color;
 use meralus_world::Face;
 
 const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.1, 0.25, 0.5, 1.0];
@@ -108,7 +109,7 @@ pub trait CameraExt {
     fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)>;
 }
 
-impl CameraExt for Camera3D {
+impl CameraExt for Camera {
     fn unproject_position(&self, width: f32, height: f32, position: Vec3) -> Option<(Vec2, f32)> {
         let clip_space = self.matrix() * position.extend(1.0);
 
@@ -177,7 +178,7 @@ pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> 
     // compare with 't'.
     radius /= dz.mul_add(dz, dx.mul_add(dx, dy.powi(2))).sqrt();
 
-    let bounds = game.surface_size().as_vec3();
+    let bounds = game.chunk_manager.surface_size().as_vec3();
     let mut block = None;
 
     while (if step_x > 0.0 { x < bounds.x } else { x >= 0.0 })
@@ -187,7 +188,7 @@ pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> 
         // Invoke the callback, unless we are not *yet* within the bounds of the
         // world.
         if (!(x < 0.0 || y < 0.0 || z < 0.0 || x >= bounds.x || y >= bounds.y || z >= bounds.z))
-            && (game.block_exists(vec3(x, y, z)))
+            && (game.chunk_manager.contains_block(vec3(x, y, z)))
         {
             block = Some(vec3(x, y, z));
 
@@ -265,4 +266,20 @@ fn intbound(s: f32, ds: f32) -> f32 {
         // problem is now s+t*ds = 1
         (1.0 - s) / ds
     }
+}
+
+pub const SIZE_CAP: f32 = 960.0;
+
+pub fn format_bytes(bytes: usize) -> String {
+    let mut value = bytes as f32;
+
+    for suffix in ["B", "kB", "MB"] {
+        if value > SIZE_CAP {
+            value /= 1024.0;
+        } else {
+            return format!("{value:.2}{suffix}");
+        }
+    }
+
+    format!("{value:.2}GB")
 }

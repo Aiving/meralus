@@ -1,4 +1,4 @@
-use glam::{IVec2, U16Vec3, Vec3, vec3};
+use glam::{IVec2, IVec3, U16Vec3, Vec3, vec3};
 use noise::{Fbm, NoiseFn, Perlin};
 use owo_colors::OwoColorize;
 use std::io::{self, Read};
@@ -7,8 +7,11 @@ pub const CHUNK_SIZE: usize = 16;
 pub const SUBCHUNK_COUNT: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Cube whose size is specified by [`CHUNK_SIZE`] constant.
 pub struct SubChunk {
+    /// 3D array of block IDs.
     pub blocks: [[[u8; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
+    /// 3D array of block light level values.
     pub light_levels: [[[u8; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
 }
 
@@ -20,8 +23,11 @@ impl SubChunk {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Part of the world consisting of subchunks, number of which is specified by [`SUBCHUNK_COUNT`] constant.
 pub struct Chunk {
+    /// Chunk location on a 2D grid
     pub origin: IVec2,
+    /// Array of chunk vertical sections
     pub subchunks: [SubChunk; SUBCHUNK_COUNT],
 }
 
@@ -85,6 +91,36 @@ impl Chunk {
         subchunks: [SubChunk::EMPTY; SUBCHUNK_COUNT],
     };
 
+    pub fn to_local(&self, position: Vec3) -> U16Vec3 {
+        let position = position.floor();
+
+        let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as u16;
+        let y = position.y.floor() as u16;
+        let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as u16;
+
+        U16Vec3::new(x, y, z)
+    }
+
+    pub const fn get_subchunk_index(&self, y: usize) -> [usize; 2] {
+        [y >> 4, y.rem_euclid(CHUNK_SIZE)]
+    }
+
+    pub fn to_world(&self, position: U16Vec3) -> IVec3 {
+        let IVec2 { x, y } = self.origin;
+
+        IVec3::new(
+            (x * CHUNK_SIZE as i32) + i32::from(position.x),
+            i32::from(position.y),
+            (y * CHUNK_SIZE as i32) + i32::from(position.z),
+        )
+    }
+
+    pub const fn contains_local_position(&self, position: U16Vec3) -> bool {
+        position.x < CHUNK_SIZE as u16
+            && position.y < (SUBCHUNK_COUNT * CHUNK_SIZE) as u16
+            && position.z < CHUNK_SIZE as u16
+    }
+
     pub fn contains_position(&self, position: Vec3) -> bool {
         self.origin.x == (position.x.floor() as i32 >> 4)
             && self.origin.y == (position.z.floor() as i32 >> 4)
@@ -98,40 +134,14 @@ impl Chunk {
     }
 
     pub fn set_block_unchecked(&mut self, position: Vec3, block: u8) {
-        let position = position.floor();
-
-        let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let subchunk = (position.y as i32 >> 4) as usize;
-        let y = (position.y.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as usize;
+        let [x, y, z] = self.to_local(position).to_array().map(usize::from);
+        let [subchunk, y] = self.get_subchunk_index(y);
 
         self.subchunks[subchunk].blocks[y][z][x] = block;
     }
 
-    pub fn get_block_inner(&self, position: U16Vec3) -> Option<u8> {
-        let [x, y, z] = position.to_array().map(usize::from);
-
-        let subchunk = y >> 4;
-        let subchunk_y = y.rem_euclid(CHUNK_SIZE);
-
-        if x >= CHUNK_SIZE || z >= CHUNK_SIZE {
-            return None;
-        }
-
-        self.subchunks
-            .get(subchunk)
-            .and_then(|subchunk| {
-                subchunk
-                    .blocks
-                    .get(subchunk_y)
-                    .and_then(|z_row| z_row.get(z).and_then(|x_row| x_row.get(x)))
-            })
-            .filter(|value| value != &&u8::MIN)
-            .copied()
-    }
-
-    pub fn get_block(&self, position: Vec3) -> Option<u8> {
-        if !self.contains_position(position) {
+    pub fn get_block(&self, position: U16Vec3) -> Option<u8> {
+        if !self.contains_local_position(position) {
             return None;
         }
 
@@ -139,13 +149,9 @@ impl Chunk {
     }
 
     #[must_use]
-    pub fn get_block_unchecked(&self, position: Vec3) -> Option<u8> {
-        let position = position.floor();
-
-        let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let subchunk = (position.y as i32 >> 4) as usize;
-        let y = (position.y.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as usize;
+    pub fn get_block_unchecked(&self, position: U16Vec3) -> Option<u8> {
+        let [x, y, z] = position.to_array().map(usize::from);
+        let [subchunk, y] = self.get_subchunk_index(y);
 
         let block_id = self.subchunks[subchunk].blocks[y][z][x];
 
@@ -160,31 +166,24 @@ impl Chunk {
         self.subchunks.get_mut((y.floor() as i32 >> 4) as usize)
     }
 
-    #[must_use]
-    pub fn get_light_level(&self, position: Vec3) -> Option<u8> {
-        if !self.contains_position(position) {
-            return None;
-        }
+    pub fn get_light_level(&self, position: U16Vec3) -> u8 {
+        let [x, y, z] = position.to_array().map(usize::from);
+        let [subchunk, y] = self.get_subchunk_index(y);
 
-        let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let subchunk = (position.y as i32 >> 4) as usize;
-        let y = (position.y.rem_euclid(CHUNK_SIZE as f32)) as usize;
-        let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as usize;
-
-        if self.subchunks[subchunk].blocks[y][z][x] == 0 {
-            None
-        } else {
-            Some(self.subchunks[subchunk].light_levels[y][z][x])
-        }
+        self.subchunks[subchunk].light_levels[y][z][x]
     }
 
-    #[must_use]
+    pub fn get_light_level_mut(&mut self, position: U16Vec3) -> &mut u8 {
+        let [x, y, z] = position.to_array().map(usize::from);
+        let [subchunk, y] = self.get_subchunk_index(y);
+
+        &mut self.subchunks[subchunk].light_levels[y][z][x]
+    }
+
     pub fn check_for_block(&self, position: Vec3) -> bool {
         if self.contains_position(position) {
-            let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as usize;
-            let subchunk = (position.y as i32 >> 4) as usize;
-            let y = (position.y.rem_euclid(CHUNK_SIZE as f32)) as usize;
-            let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as usize;
+            let [x, y, z] = self.to_local(position).to_array().map(usize::from);
+            let [subchunk, y] = self.get_subchunk_index(y);
 
             self.subchunks[subchunk].blocks[y][z][x] != 0
         } else {
@@ -192,22 +191,37 @@ impl Chunk {
         }
     }
 
-    #[must_use]
-    pub fn get_sun_light(&self, position: Vec3) -> Option<u8> {
-        self.get_light_level(position)
-            .map(|level| (level >> 4) & 0xF)
+    pub fn get_sun_light(&self, position: U16Vec3) -> u8 {
+        (self.get_light_level(position) >> 4) & 0xF
     }
 
-    #[must_use]
-    pub fn get_block_light(&self, position: Vec3) -> Option<u8> {
-        self.get_light_level(position).map(|level| level & 0xF)
+    pub fn set_sun_light(&mut self, position: U16Vec3, value: u8) {
+        let level = self.get_light_level_mut(position);
+
+        *level = (*level & 0xF) | (value << 4);
     }
 
-    #[must_use]
-    pub fn from_perlin_noise(origin: IVec2, seed: u32) -> Self {
+    pub fn get_block_light(&self, position: U16Vec3) -> u8 {
+        self.get_light_level(position) & 0xF
+    }
+
+    pub fn set_block_light(&mut self, position: U16Vec3, value: u8) {
+        let level = self.get_light_level_mut(position);
+
+        *level = (*level & 0xF0) | value;
+    }
+
+    pub const fn new(origin: IVec2) -> Self {
+        Self {
+            origin,
+            ..Self::EMPTY
+        }
+    }
+
+    pub fn generate_surface(&mut self, seed: u32) {
         let generator = Fbm::<Perlin>::new(seed);
 
-        let position = origin.as_vec2() * CHUNK_SIZE as f32;
+        let position = self.origin.as_vec2() * CHUNK_SIZE as f32;
         // let spline = Spline::from_iter([
         //     Key::new(-1.0, 100.0, Interpolation::Cosine),
         //     Key::new(0.3, 100.0, Interpolation::Cosine),
@@ -215,12 +229,10 @@ impl Chunk {
         //     Key::new(1.0, 150.0, Interpolation::Cosine),
         // ]);
 
-        let mut empty = Self::EMPTY;
-
-        empty.origin = origin;
-
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
+                let mut max = 0;
+
                 for y in 0..(CHUNK_SIZE * SUBCHUNK_COUNT) {
                     let value = generator.get([
                         (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
@@ -229,8 +241,10 @@ impl Chunk {
                     ]);
 
                     if value > 0.0 {
+                        max = max.max(y);
+
                         if y == (CHUNK_SIZE * SUBCHUNK_COUNT - 1) {
-                            empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                            self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
                         } else {
                             let value = generator.get([
                                 (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
@@ -240,9 +254,9 @@ impl Chunk {
                             ]);
 
                             if value <= 0.0 {
-                                empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                                self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
                             } else {
-                                empty.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
+                                self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
                             }
                         }
                     }
@@ -253,12 +267,10 @@ impl Chunk {
         println!(
             "[{:18}] Generated chunk at {}",
             "INFO/WorldGen".bright_green(),
-            format!("{:>2} {:>2}", origin.x, origin.y)
+            format!("{:>2} {:>2}", self.origin.x, self.origin.y)
                 .bright_blue()
                 .bold()
         );
-
-        empty
     }
 }
 
@@ -268,9 +280,14 @@ mod tests {
     fn test_chunk_serialization() {
         use super::*;
 
-        let chunk = Chunk::from_perlin_noise(IVec2::new(0, 0), 0);
+        let mut chunk = Chunk::new(IVec2::new(0, 0));
+
+        chunk.generate_surface(0);
+
         let serialized = chunk.serialize();
+
         println!("{}", serialized.len());
+
         let deserialized = Chunk::deserialize(&serialized).unwrap();
 
         assert_eq!(chunk.origin, deserialized.origin);

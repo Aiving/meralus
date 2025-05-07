@@ -1,6 +1,6 @@
 use crate::{
-    Camera3D, Game, KeyboardController, game::Aabb, get_movement_direction,
-    get_rotation_directions, raycast,
+    Camera, Game, KeyboardController, game::Aabb, get_movement_direction, get_rotation_directions,
+    raycast,
 };
 use glam::{FloatExt, Vec2, Vec3, vec3};
 use meralus_engine::KeyCode;
@@ -57,7 +57,7 @@ impl PlayerController {
         &mut self,
         game: &Game,
         keyboard: &KeyboardController,
-        camera: &mut Camera3D,
+        camera: &mut Camera,
         delta: f32,
     ) {
         let direction = get_movement_direction(keyboard);
@@ -66,11 +66,11 @@ impl PlayerController {
 
         let velocity = ((front * direction.z) + (right * direction.x))
             * if keyboard.is_key_pressed(KeyCode::ShiftLeft) && direction.z > 0.0 {
-                camera.fovy = camera.fovy.lerp(65.0_f32.to_radians(), 0.15);
+                camera.fov = camera.fov.lerp(65.0_f32.to_radians(), 0.15);
 
                 Self::MOVE_SPEED * 1.5
             } else {
-                camera.fovy = camera.fovy.lerp(55.0_f32.to_radians(), 0.15);
+                camera.fov = camera.fov.lerp(55.0_f32.to_radians(), 0.15);
 
                 Self::MOVE_SPEED
             };

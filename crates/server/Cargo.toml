@@ -7,7 +7,7 @@ edition = "2024"
 async-compression = { workspace = true }
 tokio = { workspace = true }
 meralus-world = { workspace = true }
-meralus-shared = { workspace = true }
+meralus-shared = { workspace = true, features = ["network"] }
 glam = { workspace = true }
 futures = { workspace = true }
 

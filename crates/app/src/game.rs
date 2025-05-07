@@ -1,21 +1,26 @@
-use crate::{BlockModelLoader, TextureLoader, mesh::Mesh, vertex_ao};
-use glam::{IVec3, Vec2, Vec3, ivec2, ivec3, u16vec3, vec3};
-use meralus_engine::{Color, Vertex, WindowDisplay, glium::Texture2d};
-use meralus_world::{CHUNK_SIZE, Chunk, Face, SUBCHUNK_COUNT};
+use crate::{BakedBlockModelLoader, TextureLoader, mesh::Mesh, vertex_ao};
+use glam::{IVec2, IVec3, U16Vec3, Vec2, Vec3, ivec3, u16vec3, vec3};
+use meralus_engine::{
+    Vertex, WindowDisplay,
+    glium::{
+        Texture2d,
+        uniforms::{MagnifySamplerFilter, MinifySamplerFilter, Sampler},
+    },
+};
+use meralus_shared::Color;
+use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, Face, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use std::{
-    collections::HashMap,
     ops::Range,
     path::{Path, PathBuf},
 };
 
 pub struct Game {
     textures: TextureLoader,
-    blocks: BlockModelLoader,
-    chunks: HashMap<IVec3, Chunk>,
+    blocks: BakedBlockModelLoader,
+    pub chunk_manager: ChunkManager,
     players: Vec<Player>,
     root: PathBuf,
-    // pub egui: EGui,
 }
 
 pub struct Player {
@@ -32,6 +37,14 @@ pub struct BackedFace {
     pub position: IVec3,
     pub face: Face,
     pub mesh: Mesh,
+}
+
+struct LightNode(U16Vec3, IVec2);
+
+impl LightNode {
+    pub const fn get_position(&self) -> U16Vec3 {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,30 +160,20 @@ impl Game {
     pub fn new(
         display: &WindowDisplay,
         root: impl Into<PathBuf>,
-        seed: u32,
         x_range: Range<i32>,
         z_range: Range<i32>,
     ) -> Self {
         Self {
             textures: TextureLoader::new(display),
-            blocks: BlockModelLoader::default(),
+            blocks: BakedBlockModelLoader::default(),
             players: Vec::new(),
             root: root.into(),
-            chunks: x_range
-                .flat_map(|x| {
-                    z_range.clone().map(move |z| {
-                        (
-                            IVec3::new(x, 0, z),
-                            Chunk::from_perlin_noise(ivec2(x, z), seed),
-                        )
-                    })
-                })
-                .collect(),
+            chunk_manager: ChunkManager::from_range(x_range, &z_range),
         }
     }
 
-    pub fn chunks_count(&self) -> usize {
-        self.chunks.len()
+    pub fn generate_world(&mut self, seed: u32) {
+        self.chunk_manager.generate_surface(seed);
     }
 
     pub fn add_player(&mut self, player: Player) {
@@ -181,33 +184,47 @@ impl Game {
         &self.players
     }
 
-    pub fn surface_size(&self) -> IVec3 {
-        let mut min = IVec3::ZERO;
-        let mut max = IVec3::ZERO;
+    pub fn set_block_light(&mut self, position: Vec3, light_level: u8) {
+        let mut lights_bfs_queue = Vec::new();
 
-        for chunk in self.chunks.keys() {
-            min = min.min(*chunk);
-            max = max.max(*chunk);
+        if let Some(chunk) = self
+            .chunk_manager
+            .get_chunk_mut(&ChunkManager::to_local(position))
+        {
+            let position = chunk.to_local(position);
+
+            chunk.set_block_light(position, light_level);
+
+            lights_bfs_queue.push(LightNode(position, chunk.origin));
         }
 
-        (max - min) * 16
-            + IVec3::new(
-                CHUNK_SIZE as i32,
-                (CHUNK_SIZE * SUBCHUNK_COUNT) as i32,
-                CHUNK_SIZE as i32,
-            )
-    }
+        while let Some(node) = lights_bfs_queue.pop() {
+            if let Some(chunk) = self.chunk_manager.get_chunk_mut(&node.1) {
+                let local_position = node.get_position();
+                let world_position = chunk.to_world(local_position);
 
-    pub fn bounds(&self) -> (IVec3, IVec3) {
-        let mut min = IVec3::ZERO;
-        let mut max = IVec3::ZERO;
+                let light_level = chunk.get_block_light(local_position);
 
-        for chunk in self.chunks.keys() {
-            min = min.min(*chunk);
-            max = max.max(*chunk);
+                for face in Face::ALL {
+                    let neighbour_position = (world_position + face.as_normal()).as_vec3();
+
+                    if let Some(chunk) = self
+                        .chunk_manager
+                        .get_chunk_mut(&ChunkManager::to_local(neighbour_position))
+                    {
+                        let local_position = chunk.to_local(neighbour_position);
+
+                        if chunk.get_block_unchecked(local_position).is_none()
+                            && chunk.get_block_light(local_position) + 2 <= light_level
+                        {
+                            chunk.set_block_light(local_position, light_level - 1);
+
+                            lights_bfs_queue.push(LightNode(local_position, chunk.origin));
+                        }
+                    }
+                }
+            }
         }
-
-        (min * 16, max * 16)
     }
 
     pub fn load_block<P: AsRef<Path>>(&mut self, path: P) {
@@ -223,7 +240,7 @@ impl Game {
                 for x in min[0]..max[0] {
                     let position = ivec3(x, y, z).as_vec3();
 
-                    if self.block_exists(position) {
+                    if self.chunk_manager.contains_block(position) {
                         let block = Aabb::new(position, position + Vec3::ONE);
 
                         if aabb.intersects_x(block)
@@ -251,7 +268,7 @@ impl Game {
                 for x in min[0]..max[0] {
                     let position = ivec3(x, y, z).as_vec3();
 
-                    if self.block_exists(position) {
+                    if self.chunk_manager.contains_block(position) {
                         let block = Aabb::new(position, position + Vec3::ONE);
 
                         if aabb.intersects_x(block)
@@ -305,6 +322,14 @@ impl Game {
         self.textures.get_atlas()
     }
 
+    pub fn get_texture_atlas_sampled(&self) -> Sampler<'_, Texture2d> {
+        self.textures
+            .get_atlas()
+            .sampled()
+            .minify_filter(MinifySamplerFilter::NearestMipmapLinear)
+            .magnify_filter(MagnifySamplerFilter::Nearest)
+    }
+
     pub fn get_texture_count(&self) -> usize {
         self.textures.get_texture_count()
     }
@@ -313,72 +338,44 @@ impl Game {
         self.textures.get_texture(name.as_ref())
     }
 
-    #[must_use]
-    pub fn find_chunk(&self, position: Vec3) -> Option<&Chunk> {
-        self.chunks.get(&ivec3(
-            position.x.floor() as i32 >> 4,
-            0,
-            position.z.floor() as i32 >> 4,
-        ))
-    }
-
-    pub fn find_chunk_mut(&mut self, position: Vec3) -> Option<&mut Chunk> {
-        self.chunks.get_mut(
-            &vec3(
-                (position.x * (1.0 / CHUNK_SIZE as f32)).floor(),
-                0.0,
-                (position.z * (1.0 / CHUNK_SIZE as f32)).floor(),
-            )
-            .as_ivec3(),
-        )
-    }
-
-    #[must_use]
-    pub fn find_block(&self, position: Vec3) -> Option<u8> {
-        let chunk = self.find_chunk(position)?;
-
-        chunk.get_block(position)
-    }
-
-    #[must_use]
-    pub fn block_exists(&self, position: Vec3) -> bool {
-        self.find_chunk(position)
-            .is_some_and(|chunk| chunk.check_for_block(position))
-    }
-
     fn compute_chunk_mesh(&self, chunk: &Chunk) -> [Mesh; 6] {
         let origin = chunk.origin.as_vec2();
         let mut meshes = [Mesh::EMPTY; 6];
 
+        for mesh in &mut meshes {
+            mesh.origin = chunk.origin;
+        }
+
         for y in 0..(CHUNK_SIZE as u16 * SUBCHUNK_COUNT as u16) {
             for z in 0..(CHUNK_SIZE as u16) {
                 for x in 0..(CHUNK_SIZE as u16) {
-                    let position = u16vec3(x, y, z);
-                    let float_position =
-                        position.as_vec3() + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
+                    let local_position = u16vec3(x, y, z);
+                    let float_position = local_position.as_vec3()
+                        + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
                     if let Some(model) = chunk
-                        .get_block_inner(position)
+                        .get_block(local_position)
                         .and_then(|block_id| self.blocks.get(block_id.into()))
                     {
-                        let position = position.as_vec3()
+                        let position = local_position.as_vec3()
                             + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
                         for model_face in &model.faces {
-                            if self
-                                .find_block(float_position + model_face.face.as_normal().as_vec3())
-                                .is_none()
-                            {
+                            let neighbour_position =
+                                float_position + model_face.face.as_normal().as_vec3();
+
+                            if self.chunk_manager.get_block(neighbour_position).is_none() {
                                 let mesh = &mut meshes[model_face.face.normal_index()];
 
-                                let mut vertices = model_face.face.as_vertices();
+                                let mut vertices = model_face.face.as_bool_vertices();
                                 let mut uvs = model_face.uv;
                                 let mut overlay_uvs = model_face.overlay_uv.unwrap_or_default();
 
                                 let mut aos = model_face.face.as_vertice_corners().map(|corner| {
                                     let [side1, side2, corner] =
                                         corner.get_neighbours(model_face.face).map(|neighbour| {
-                                            self.block_exists(position + neighbour.as_vec3())
+                                            self.chunk_manager
+                                                .contains_block(position + neighbour.as_vec3())
                                         });
 
                                     vertex_ao(side1, side2, corner)
@@ -403,24 +400,22 @@ impl Game {
                                 }
 
                                 mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
-                                    Vertex {
-                                        position: vertices[vertice] + position,
-                                        uv: uvs[vertice],
-                                        overlay_uv: overlay_uvs[vertice],
-                                        overlay_color: if model.name == "grass_block" {
-                                            Color::LIGHT_GREEN
-                                        } else {
-                                            model_face.overlay_color.unwrap_or(Color::WHITE)
-                                        }
-                                        .multiply_rgb(aos[vertice]),
-                                        have_overlay: model_face.overlay_uv.is_some().into(),
-                                        color: if model.name == "grass_block" && model_face.tint {
+                                    let light_level =
+                                        self.chunk_manager.get_block_light(neighbour_position);
+
+                                    Vertex::from_vec(
+                                        vertices[vertice],
+                                        local_position,
+                                        uvs[vertice],
+                                        if model.name == "grass_block" && model_face.tint {
                                             Color::LIGHT_GREEN
                                         } else {
                                             Color::WHITE
                                         }
+                                        .multiply_rgb(model_face.face.get_light_level())
+                                        .multiply_rgb(f32::from(light_level + 1) / 16.0)
                                         .multiply_rgb(aos[vertice]),
-                                    }
+                                    )
                                 }));
                             }
                         }
@@ -436,7 +431,7 @@ impl Game {
     pub fn compute_world_mesh(&self) -> Vec<[Mesh; 6]> {
         let mut meshes = Vec::new();
 
-        for chunk in self.chunks.values() {
+        for chunk in self.chunk_manager.chunks() {
             meshes.push(self.compute_chunk_mesh(chunk));
 
             println!(

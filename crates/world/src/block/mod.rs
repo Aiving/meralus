@@ -1,4 +1,5 @@
 mod face;
+mod state;
 
 use std::{collections::HashMap, path::PathBuf};
 
@@ -8,6 +9,7 @@ use serde::{
     Deserialize, Serialize,
     de::{Error, Visitor},
 };
+pub use state::{BlockCondition, BlockState, BlockStates, ConditionValue, Property, PropertyValue};
 
 #[derive(Debug, Default, Serialize)]
 pub struct BlockFace {
@@ -115,7 +117,7 @@ impl Serialize for TextureId {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Block {
+pub struct BlockModel {
     #[serde(default)]
     pub textures: HashMap<String, TextureId>,
     #[serde(default = "default_ao")]
@@ -128,7 +130,7 @@ const fn default_ao() -> bool {
     true
 }
 
-impl Block {
+impl BlockModel {
     pub fn from_slice(data: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(data)
     }
@@ -158,13 +160,13 @@ pub enum Faces {
 mod tests {
     use std::fs;
 
-    use crate::block::Block;
+    use crate::block::BlockModel;
 
     #[test]
     fn test_block() {
         let data =
             fs::read("/home/aiving/dev/meralus/crates/app/resources/models/air.json").unwrap();
 
-        println!("{:#?}", serde_json::from_slice::<Block>(&data));
+        println!("{:#?}", serde_json::from_slice::<BlockModel>(&data));
     }
 }

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use glam::{UVec2, Vec2, Vec3, Vec4, uvec2, vec2, vec3};
+use glam::{U16Vec3, UVec2, Vec2, uvec2, vec2};
 pub use glium;
 use glium::{Display, vertex::AttributeType};
 use glutin::{
@@ -17,6 +17,7 @@ use glutin::{
     surface::{SurfaceAttributesBuilder, WindowSurface},
 };
 use glutin_winit::DisplayBuilder;
+use meralus_shared::Color;
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -33,149 +34,26 @@ pub use winit::{
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
-    pub position: Vec3,
+    pub corner: u8,
+    pub position: u16,
     pub uv: Vec2,
-    pub overlay_uv: Vec2,
-    pub overlay_color: Color,
-    pub have_overlay: u8,
     pub color: Color,
-}
-
-pub trait AsValue<T> {
-    fn as_value(&self) -> T;
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Color type represented as RGBA
-pub struct Color([u8; 4]);
-
-impl AsValue<[f32; 4]> for Color {
-    fn as_value(&self) -> [f32; 4] {
-        [
-            f32::from(self.0[0]) / 255.0,
-            f32::from(self.0[1]) / 255.0,
-            f32::from(self.0[2]) / 255.0,
-            f32::from(self.0[3]) / 255.0,
-        ]
-    }
-}
-
-impl AsValue<[f32; 3]> for Color {
-    fn as_value(&self) -> [f32; 3] {
-        [
-            f32::from(self.0[0]) / 255.0,
-            f32::from(self.0[1]) / 255.0,
-            f32::from(self.0[2]) / 255.0,
-        ]
-    }
-}
-
-impl AsValue<Vec4> for Color {
-    fn as_value(&self) -> Vec4 {
-        Vec4::from_array(self.as_value())
-    }
-}
-
-impl AsValue<Vec3> for Color {
-    fn as_value(&self) -> Vec3 {
-        Vec3::from_array(self.as_value())
-    }
-}
-
-impl From<Vec4> for Color {
-    fn from(value: Vec4) -> Self {
-        Self([
-            (255.0 * value.x) as u8,
-            (255.0 * value.y) as u8,
-            (255.0 * value.z) as u8,
-            (255.0 * value.w) as u8,
-        ])
-    }
-}
-
-impl From<Vec3> for Color {
-    fn from(value: Vec3) -> Self {
-        Self([
-            (255.0 * value.x) as u8,
-            (255.0 * value.y) as u8,
-            (255.0 * value.z) as u8,
-            255,
-        ])
-    }
-}
-
-impl AsValue<[u8; 4]> for Color {
-    fn as_value(&self) -> [u8; 4] {
-        self.0
-    }
-}
-
-impl Color {
-    pub const RED: Self = Self([255, 0, 0, 255]);
-    pub const GREEN: Self = Self([0, 255, 0, 255]);
-    pub const LIGHT_GREEN: Self = Self([122, 250, 129, 255]);
-    pub const BLUE: Self = Self([0, 0, 255, 255]);
-    pub const YELLOW: Self = Self([255, 255, 0, 255]);
-    pub const BROWN: Self = Self([165, 42, 42, 255]);
-    pub const PURPLE: Self = Self([128, 0, 128, 255]);
-    pub const WHITE: Self = Self([255, 255, 255, 255]);
-    pub const BLACK: Self = Self([0, 0, 0, 255]);
-
-    pub fn from_hsl(hue: f32, saturation: f32, lightness: f32) -> Self {
-        let [red, green, blue] = if saturation == 0.0 {
-            [lightness, lightness, lightness]
-        } else {
-            fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
-                if t < 0.0 {
-                    t += 1.0;
-                }
-
-                if t > 1.0 {
-                    t -= 1.0;
-                }
-
-                match t {
-                    t if t < 1.0 / 6.0 => ((q - p) * 6.0).mul_add(t, p),
-                    t if t < 1.0 / 2.0 => q,
-                    t if t < 2.0 / 3.0 => ((q - p) * (2.0 / 3.0 - t)).mul_add(6.0, p),
-                    _ => p,
-                }
-            }
-
-            let q = if lightness < 0.5 {
-                lightness * (1.0 + saturation)
-            } else {
-                lightness.mul_add(-saturation, lightness + saturation)
-            };
-
-            let p = 2.0f32.mul_add(lightness, -q);
-
-            [
-                hue_to_rgb(p, q, hue + 1.0 / 3.0),
-                hue_to_rgb(p, q, hue),
-                hue_to_rgb(p, q, hue - 1.0 / 3.0),
-            ]
-        };
-
-        Self::from(vec3(red, green, blue))
-    }
-
-    #[must_use]
-    pub fn multiply_rgb(self, factor: f32) -> Self {
-        let value: Vec3 = self.as_value();
-
-        (value * factor).into()
-    }
 }
 
 impl Vertex {
     const BINDINGS: &[(Cow<'static, str>, usize, i32, AttributeType, bool)] = &[
         (
+            Cow::Borrowed("corner"),
+            glium::__glium_offset_of!(Vertex, corner),
+            -1,
+            AttributeType::U8,
+            false,
+        ),
+        (
             Cow::Borrowed("position"),
             glium::__glium_offset_of!(Vertex, position),
             -1,
-            AttributeType::F32F32F32,
+            AttributeType::U16,
             false,
         ),
         (
@@ -183,27 +61,6 @@ impl Vertex {
             glium::__glium_offset_of!(Vertex, uv),
             -1,
             AttributeType::F32F32,
-            false,
-        ),
-        (
-            Cow::Borrowed("overlay_uv"),
-            glium::__glium_offset_of!(Vertex, overlay_uv),
-            -1,
-            AttributeType::F32F32,
-            false,
-        ),
-        (
-            Cow::Borrowed("overlay_color"),
-            glium::__glium_offset_of!(Vertex, overlay_color),
-            -1,
-            AttributeType::U8U8U8U8,
-            false,
-        ),
-        (
-            Cow::Borrowed("have_overlay"),
-            glium::__glium_offset_of!(Vertex, have_overlay),
-            -1,
-            AttributeType::U8,
             false,
         ),
         (
@@ -215,28 +72,14 @@ impl Vertex {
         ),
     ];
 
-    pub const fn from_vec(
-        position: Vec3,
-        uv: Vec2,
-        color: Color,
-        overlay_uv: Option<Vec2>,
-        overlay_color: Option<Color>,
-        have_overlay: bool,
-    ) -> Self {
+    pub const fn from_vec(corner: [bool; 3], position: U16Vec3, uv: Vec2, color: Color) -> Self {
+        let corner = ((corner[0] as u8) << 2) | ((corner[1] as u8) << 1) | corner[2] as u8;
+        let position = (position.x << 12) | (position.z << 8) | position.y;
+
         Self {
+            corner,
             position,
             uv,
-            overlay_uv: if let Some(overlay_uv) = overlay_uv {
-                overlay_uv
-            } else {
-                Vec2::ZERO
-            },
-            overlay_color: if let Some(overlay_color) = overlay_color {
-                overlay_color
-            } else {
-                Color::WHITE
-            },
-            have_overlay: if have_overlay { 1 } else { 0 },
             color,
         }
     }
@@ -274,7 +117,7 @@ pub trait State {
 
     fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {}
     fn fixed_update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {}
-    fn render(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay);
+    fn render(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32);
 }
 
 pub struct ApplicationWindow<T: State> {
@@ -337,7 +180,9 @@ impl ApplicationWindowBuilder {
 
     #[allow(clippy::missing_panics_doc)]
     pub fn build<T: State>(self, event_loop: &ActiveEventLoop) -> ApplicationWindow<T> {
-        let mut window_attrs = Window::default_attributes().with_visible(self.visible);
+        let mut window_attrs = Window::default_attributes()
+            .with_transparent(false)
+            .with_visible(self.visible);
 
         if let Some(title) = self.title {
             window_attrs.title = title;
@@ -347,7 +192,7 @@ impl ApplicationWindowBuilder {
             window_attrs.inner_size = Some(Size::Physical(PhysicalSize::new(size[0], size[1])));
         }
 
-        let template_builder = ConfigTemplateBuilder::new();
+        let template_builder = ConfigTemplateBuilder::new().with_transparency(true);
         let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attrs));
 
         let (window, gl_config) = display_builder
@@ -510,6 +355,8 @@ impl<T: State> ApplicationHandler for Application<T> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.window.inspect_mut(|window| {
+            window.window.set_transparent(false);
+
             window.acceleration += window.delta;
 
             while window.acceleration > FIXED_FRAMERATE {
@@ -526,7 +373,9 @@ impl<T: State> ApplicationHandler for Application<T> {
                 .state
                 .update(event_loop, &window.display, window.delta.as_secs_f32());
 
-            window.state.render(event_loop, &window.display);
+            window
+                .state
+                .render(event_loop, &window.display, window.delta.as_secs_f32());
 
             window.delta = window
                 .last_time

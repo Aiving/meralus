@@ -12,8 +12,11 @@ Executable must be in the same folder as the `resources` folder.
 
 - Walking: `WASD`
 - Jumping: `Space`
-- Running: `Shift + W` (does not work with `S`)
-- \[Debugging\] Toggle Wireframes: `T`
+- Running: `Shift + W` (does not work with `S`!)
+- \[Debugging\] Restart all animations (including finished): `R`
+- \[Debugging\] Toggle debug overlay: `T`
+- \[Debugging\] Toggle wireframes: `T`
+- \[Debugging\] Toggle chunk borders: `B`
 - \[Debugging\] Save texture atlas (with mipmaps): `L`
 - ~~\[Debugging\] Select a block under the player for debugging: `Ctrl + F`~~
 
@@ -30,5 +33,3 @@ The Minimum Supported Rust Version is currently **1.85.1**.
 Dual-licensed to be compatible with the Rust project.
 
 Code is licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This project may not be copied, modified, or distributed except according to those terms.
-
-Graphics assets are created by Mojang and by using them you automatically accept [EULA](https://www.minecraft.net/en-us/eula).

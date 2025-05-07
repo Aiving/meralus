@@ -1,107 +1,126 @@
-/*
-pub struct EGui {
-    egui_miniquad: Option<EguiMq>,
-    input_subscriber_id: Option<usize>,
+use crate::{GameLoop, renderers::Rectangle};
+use meralus_engine::{WindowDisplay, glium::Frame};
+use meralus_shared::{Color, Point2D, Rect2D, Size2D};
+
+struct Text {
+    position: Point2D,
+    font: String,
+    data: String,
+    size: f32,
+    color: Color,
 }
 
-impl Default for EGui {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct UiContext<'a> {
+    bounds: Rect2D,
+    game_loop: &'a mut GameLoop,
+    display: &'a WindowDisplay,
+    frame: &'a mut Frame,
+    rectangles: Vec<Rectangle>,
+    texts: Vec<Text>,
 }
 
-impl EGui {
-    pub const fn new() -> Self {
+impl<'a> UiContext<'a> {
+    pub fn new(
+        game_loop: &'a mut GameLoop,
+        display: &'a WindowDisplay,
+        frame: &'a mut Frame,
+    ) -> Self {
+        let (width, height) = display.get_framebuffer_dimensions();
+
         Self {
-            egui_miniquad: None,
-            input_subscriber_id: None,
+            bounds: Rect2D::new(Point2D::ZERO, Size2D::new(width as f32, height as f32)),
+            game_loop,
+            display,
+            frame,
+            rectangles: Vec::new(),
+            texts: Vec::new(),
         }
     }
 
-    pub fn init(&mut self) {
-        self.egui_miniquad
-            .replace(EguiMq::new(unsafe { get_internal_gl() }.quad_context));
-
-        self.input_subscriber_id
-            .replace(macroquad::input::utils::register_input_subscriber());
+    pub fn measure_text<F: AsRef<str>, T: AsRef<str>>(
+        &mut self,
+        font: F,
+        text: T,
+        size: f32,
+    ) -> Option<Size2D> {
+        self.game_loop.text_renderer.measure(font, text, size)
     }
 
-    pub fn ui<F>(&mut self, f: F)
-    where
-        F: FnMut(&mut dyn RenderingBackend, &egui::Context),
-    {
-        let gl = unsafe { get_internal_gl() };
+    pub fn draw_text<F: Into<String>, T: Into<String>>(
+        &mut self,
+        position: Point2D,
+        font: F,
+        text: T,
+        size: f32,
+        color: Color,
+    ) {
+        self.texts.push(Text {
+            position,
+            font: font.into(),
+            data: text.into(),
+            size,
+            color,
+        });
+    }
 
-        if let Some(input_subscriber_id) = self.input_subscriber_id {
-            repeat_all_miniquad_input(self, input_subscriber_id);
-        }
+    pub fn draw_rect(&mut self, position: Point2D, size: Size2D, color: Color) {
+        self.rectangles.push(Rectangle::new(
+            position.x,
+            position.y,
+            size.width,
+            size.height,
+            color,
+        ));
+    }
 
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.run(gl.quad_context, f);
+    pub fn finish(self) {
+        self.game_loop.shape_renderer.draw_rects(
+            self.frame,
+            self.display,
+            &self.rectangles,
+            &mut self.game_loop.debugging.draw_calls,
+            &mut self.game_loop.debugging.vertices,
+        );
+
+        for text in self.texts {
+            self.game_loop.text_renderer.render(
+                self.frame,
+                &self.game_loop.window_matrix,
+                text.position,
+                text.font,
+                text.data,
+                text.size,
+                text.color,
+                &mut self.game_loop.debugging.draw_calls,
+            );
         }
     }
 
-    pub fn draw(&mut self) {
-        let mut gl = unsafe { get_internal_gl() };
+    pub fn ui<F: Fn(&mut UiContext, Rect2D)>(&mut self, func: F) {
+        func(self, self.bounds);
+    }
 
-        // Ensure that macroquad's shapes are not goint to be lost, and draw them now
-        gl.flush();
+    pub fn fill(&mut self, color: Color) {
+        self.draw_rect(self.bounds.origin.into(), self.bounds.size, color);
+    }
 
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.draw(gl.quad_context);
-        }
+    pub fn bounds<F: Fn(&mut UiContext, Rect2D)>(&mut self, bounds: Rect2D, func: F) {
+        let temp = self.bounds;
+
+        self.bounds = bounds;
+
+        func(self, self.bounds);
+
+        self.bounds = temp;
+    }
+
+    pub fn padding<F: Fn(&mut UiContext, Rect2D)>(&mut self, value: f32, func: F) {
+        self.bounds.origin += Point2D::ONE * value;
+        self.bounds.size -= Size2D::ONE * value * 2.0;
+
+        func(self, self.bounds);
+
+        self.bounds.origin -= Point2D::ONE * value;
+        self.bounds.size += Size2D::ONE * value * 2.0;
     }
 }
-
-impl EventHandler for EGui {
-    fn update(&mut self) {
-        todo!()
-    }
-
-    fn draw(&mut self) {
-        todo!()
-    }
-
-    fn mouse_motion_event(&mut self, x: f32, y: f32) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.mouse_motion_event(x, y);
-        }
-    }
-
-    fn mouse_wheel_event(&mut self, dx: f32, dy: f32) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.mouse_wheel_event(dx, dy);
-        }
-    }
-
-    fn mouse_button_down_event(&mut self, mb: MouseButton, x: f32, y: f32) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.mouse_button_down_event(mb, x, y);
-        }
-    }
-
-    fn mouse_button_up_event(&mut self, mb: MouseButton, x: f32, y: f32) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.mouse_button_up_event(mb, x, y);
-        }
-    }
-
-    fn char_event(&mut self, character: char, _keymods: KeyMods, _repeat: bool) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.char_event(character);
-        }
-    }
-
-    fn key_down_event(&mut self, keycode: KeyCode, keymods: KeyMods, _repeat: bool) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.key_down_event(keycode, keymods);
-        }
-    }
-
-    fn key_up_event(&mut self, keycode: KeyCode, keymods: KeyMods) {
-        if let Some(egui) = self.egui_miniquad.as_mut() {
-            egui.key_up_event(keycode, keymods);
-        }
-    }
-}
- */
