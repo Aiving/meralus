@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/da42b6e6-e684-4c28-9d18-8a4736abd31d)# Meralus
+# Meralus
 
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT_or_Apache_2.0-634f7d.svg?style=for-the-badge)](LICENSE-APACHE)
 
