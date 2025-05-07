@@ -16,7 +16,7 @@ Note: animation player is disabled by default, so you need to press `R` to enabl
 - Jumping: `Space`
 - Running: `Shift + W` (does not work with `S`!)
 - \[Debugging\] Restart all animations (including finished): `R`
-- \[Debugging\] Toggle debug overlay: `T`
+- \[Debugging\] Toggle debug overlay: `O`
 - \[Debugging\] Toggle wireframes: `T`
 - \[Debugging\] Toggle chunk borders: `B`
 - \[Debugging\] Save texture atlas (with mipmaps): `L`
