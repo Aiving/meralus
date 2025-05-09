@@ -441,8 +441,6 @@ impl State for GameLoop {
     }
 
     fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
-        self.voxel_renderer
-            .set_sun_position(self.animation_player.get_value("sun").unwrap());
         self.debugging.draw_calls = 0;
         self.debugging.vertices = 0;
 
