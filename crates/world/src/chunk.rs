@@ -265,9 +265,19 @@ impl Chunk {
         }
 
         println!(
-            "[{:18}] Generated chunk at {}",
+            "[{:18}] Generated chunk at {}: {} non-air blocks",
             "INFO/WorldGen".bright_green(),
             format!("{:>2} {:>2}", self.origin.x, self.origin.y)
+                .bright_blue()
+                .bold(),
+            self.subchunks
+                .iter()
+                .fold(0, |c, subchunk| c + subchunk.blocks.iter().fold(
+                    0,
+                    |c, y| c + y
+                        .iter()
+                        .fold(0, |c, z| c + z.iter().filter(|&&x| x != 0).count())
+                ))
                 .bright_blue()
                 .bold()
         );

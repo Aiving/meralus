@@ -1,6 +1,5 @@
-use glam::{Vec3, Vec4};
-
 use crate::AsValue;
+use glam::{Vec3, Vec4};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -145,9 +144,9 @@ impl Color {
             let p = 2.0f32 * lightness - q;
 
             [
-                hue_to_rgb(p, q, hue + 1.0 / 3.0),
-                hue_to_rgb(p, q, hue),
-                hue_to_rgb(p, q, hue - 1.0 / 3.0),
+                hue_to_rgb(p, q, (hue / 360.0) + 1.0 / 3.0),
+                hue_to_rgb(p, q, hue / 360.0),
+                hue_to_rgb(p, q, (hue / 360.0) - 1.0 / 3.0),
             ]
         };
 

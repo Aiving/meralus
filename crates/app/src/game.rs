@@ -193,12 +193,6 @@ impl Game {
                     let position = u16vec3(x as u16, 255, z as u16);
 
                     if chunk.get_block_unchecked(position).is_none() {
-                        // let position = u16vec3(x as u16, 254, z as u16);
-
-                        // if chunk.get_block_unchecked(position).is_none() {
-                        //     println!("{}", chunk.to_world(position));
-                        // }
-
                         chunk.set_sun_light(position, 15);
 
                         lights_bfs_queue.push(LightNode(position, chunk.origin));
@@ -217,14 +211,6 @@ impl Game {
                 for face in Face::ALL {
                     let neighbour_pos = world_position + face.as_normal();
                     let neighbour_position = neighbour_pos.as_vec3();
-
-                    if world_position.x == 11 && world_position.z == -10 {
-                        println!(
-                            "{world_position} {} {} ({face}) = {neighbour_pos}",
-                            if face.is_positive() { "+" } else { "-" },
-                            face.as_normal().abs(),
-                        );
-                    }
 
                     if let Some(chunk) = self
                         .chunk_manager

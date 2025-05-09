@@ -18,6 +18,7 @@ Note: animation player is disabled by default, so you need to press `R` to enabl
 - \[Debugging\] Restart all animations (including finished): `R`
 - \[Debugging\] Toggle debug overlay: `O`
 - \[Debugging\] Toggle wireframes: `T`
+- \[Debugging\] Toggle time (day/night): `N`
 - \[Debugging\] Toggle chunk borders: `B`
 - \[Debugging\] Save texture atlas (with mipmaps): `L`
 - ~~\[Debugging\] Select a block under the player for debugging: `Ctrl + F`~~

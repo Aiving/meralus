@@ -39,7 +39,7 @@ use meralus_engine::{
         winit::{event::KeyEvent, event_loop::ControlFlow, keyboard::PhysicalKey},
     },
 };
-use meralus_shared::{Color, Point2D, Rect2D, Size2D};
+use meralus_shared::{Color, FromValue, Point2D, Rect2D, Size2D};
 use meralus_world::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
@@ -48,7 +48,7 @@ use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
 use ui::UiContext;
 use util::BufferExt;
 
-const TEXT_COLOR: Color = Color::from_hsl(135., 0.48, 0.45);
+const TEXT_COLOR: Color = Color::from_hsl(135.0, 0.15, 0.25);
 const BG_COLOR: Color = Color::new(126, 230, 152, 255);
 const BLENDING: Blend = Blend {
     color: BlendingFunction::Addition {
@@ -208,6 +208,13 @@ fn chunk_borders(origin: IVec2) -> [Line; 12] {
             Color::BLUE,
         )
     })
+}
+
+const DAY_COLOR: Color = Color::from_hsl(220.0, 1.0, 0.75);
+const NIGHT_COLOR: Color = Color::new(5, 10, 20, 255);
+
+const fn get_sky_color(night: bool) -> &'static Color {
+    if night { &NIGHT_COLOR } else { &DAY_COLOR }
 }
 
 impl State for GameLoop {
@@ -447,7 +454,10 @@ impl State for GameLoop {
         let (width, height) = display.get_framebuffer_dimensions();
         let mut frame = display.draw();
 
-        frame.clear_color_and_depth((120.0 / 255.0, 167.0 / 255.0, 1.0, 1.0), 1.0);
+        frame.clear_color_and_depth(
+            <[f32; 4]>::from_value(get_sky_color(self.debugging.night)).into(),
+            1.0,
+        );
 
         self.voxel_renderer.render(
             &mut frame,
