@@ -86,8 +86,8 @@ impl Corner {
 
 impl Face {
     pub const ALL: [Self; 6] = [
-        Self::Top,
         Self::Bottom,
+        Self::Top,
         Self::Left,
         Self::Right,
         Self::Front,

@@ -92,16 +92,41 @@ impl ChunkManager {
 
     pub fn get_block_light(&self, position: Vec3) -> u8 {
         self.get_chunk(&Self::to_local(position))
-            .map(|chunk| {
+            .map_or(15, |chunk| {
                 let local_position = chunk.to_local(position);
 
                 if chunk.contains_local_position(local_position) {
                     chunk.get_block_light(local_position)
                 } else {
-                    0
+                    15
                 }
             })
-            .unwrap_or_default()
+    }
+
+    pub fn get_sun_light(&self, position: Vec3) -> u8 {
+        self.get_chunk(&Self::to_local(position))
+            .map_or(15, |chunk| {
+                let local_position = chunk.to_local(position);
+
+                if chunk.contains_local_position(local_position) {
+                    chunk.get_sun_light(local_position)
+                } else {
+                    15
+                }
+            })
+    }
+
+    pub fn get_light(&self, position: Vec3) -> u8 {
+        self.get_chunk(&Self::to_local(position))
+            .map_or(240, |chunk| {
+                let local_position = chunk.to_local(position);
+
+                if chunk.contains_local_position(local_position) {
+                    chunk.get_light_level(local_position)
+                } else {
+                    240
+                }
+            })
     }
 
     pub fn len(&self) -> usize {

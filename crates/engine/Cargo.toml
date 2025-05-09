@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-glam = { workspace = true }
 meralus-shared = { workspace = true }
+glam = { workspace = true }
 glium = "0.36.0"
 glutin = { version = "0.32.2", features = ["egl"] }
 glutin-winit = "0.5.0"

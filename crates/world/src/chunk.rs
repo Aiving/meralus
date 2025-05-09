@@ -150,8 +150,8 @@ impl Chunk {
 
     #[must_use]
     pub fn get_block_unchecked(&self, position: U16Vec3) -> Option<u8> {
-        let [x, y, z] = position.to_array().map(usize::from);
-        let [subchunk, y] = self.get_subchunk_index(y);
+        let [x, orig_y, z] = position.to_array().map(usize::from);
+        let [subchunk, y] = self.get_subchunk_index(orig_y);
 
         let block_id = self.subchunks[subchunk].blocks[y][z][x];
 

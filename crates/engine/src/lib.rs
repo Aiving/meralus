@@ -35,6 +35,7 @@ pub use winit::{
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
     pub corner: u8,
+    pub light: u8,
     pub position: u16,
     pub uv: Vec2,
     pub color: Color,
@@ -45,6 +46,13 @@ impl Vertex {
         (
             Cow::Borrowed("corner"),
             glium::__glium_offset_of!(Vertex, corner),
+            -1,
+            AttributeType::U8,
+            false,
+        ),
+        (
+            Cow::Borrowed("light"),
+            glium::__glium_offset_of!(Vertex, light),
             -1,
             AttributeType::U8,
             false,
@@ -72,12 +80,19 @@ impl Vertex {
         ),
     ];
 
-    pub const fn from_vec(corner: [bool; 3], position: U16Vec3, uv: Vec2, color: Color) -> Self {
+    pub const fn from_vec(
+        corner: [bool; 3],
+        position: U16Vec3,
+        uv: Vec2,
+        light: u8,
+        color: Color,
+    ) -> Self {
         let corner = ((corner[0] as u8) << 2) | ((corner[1] as u8) << 1) | corner[2] as u8;
         let position = (position.x << 12) | (position.z << 8) | position.y;
 
         Self {
             corner,
+            light,
             position,
             uv,
             color,

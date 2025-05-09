@@ -184,6 +184,78 @@ impl Game {
         &self.players
     }
 
+    pub fn generate_lights(&mut self) {
+        let mut lights_bfs_queue = Vec::new();
+
+        for chunk in self.chunk_manager.chunks_mut() {
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
+                    let position = u16vec3(x as u16, 255, z as u16);
+
+                    if chunk.get_block_unchecked(position).is_none() {
+                        // let position = u16vec3(x as u16, 254, z as u16);
+
+                        // if chunk.get_block_unchecked(position).is_none() {
+                        //     println!("{}", chunk.to_world(position));
+                        // }
+
+                        chunk.set_sun_light(position, 15);
+
+                        lights_bfs_queue.push(LightNode(position, chunk.origin));
+                    }
+                }
+            }
+        }
+
+        while let Some(node) = lights_bfs_queue.pop() {
+            if let Some(chunk) = self.chunk_manager.get_chunk_mut(&node.1) {
+                let local_position = node.get_position();
+                let world_position = chunk.to_world(local_position);
+
+                let light_level = chunk.get_sun_light(local_position);
+
+                for face in Face::ALL {
+                    let neighbour_pos = world_position + face.as_normal();
+                    let neighbour_position = neighbour_pos.as_vec3();
+
+                    if world_position.x == 11 && world_position.z == -10 {
+                        println!(
+                            "{world_position} {} {} ({face}) = {neighbour_pos}",
+                            if face.is_positive() { "+" } else { "-" },
+                            face.as_normal().abs(),
+                        );
+                    }
+
+                    if let Some(chunk) = self
+                        .chunk_manager
+                        .get_chunk_mut(&ChunkManager::to_local(neighbour_position))
+                    {
+                        let local_position = chunk.to_local(neighbour_position);
+
+                        if !chunk.contains_local_position(local_position) {
+                            continue;
+                        }
+
+                        if chunk.get_block_unchecked(local_position).is_none()
+                            && chunk.get_sun_light(local_position) + 2 <= light_level
+                        {
+                            chunk.set_sun_light(
+                                local_position,
+                                if face == Face::Bottom && light_level == 15 {
+                                    light_level
+                                } else {
+                                    light_level - 1
+                                },
+                            );
+
+                            lights_bfs_queue.push(LightNode(local_position, chunk.origin));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn set_block_light(&mut self, position: Vec3, light_level: u8) {
         let mut lights_bfs_queue = Vec::new();
 
@@ -367,7 +439,7 @@ impl Game {
                             if self.chunk_manager.get_block(neighbour_position).is_none() {
                                 let mesh = &mut meshes[model_face.face.normal_index()];
 
-                                let mut vertices = model_face.face.as_bool_vertices();
+                                let mut bool_vertices = model_face.face.as_bool_vertices();
                                 let mut uvs = model_face.uv;
                                 let mut overlay_uvs = model_face.overlay_uv.unwrap_or_default();
 
@@ -382,9 +454,9 @@ impl Game {
                                 });
 
                                 if aos[1] + aos[2] > aos[0] + aos[3] {
-                                    vertices.swap(0, 1);
-                                    vertices.swap(1, 2);
-                                    vertices.swap(2, 3);
+                                    bool_vertices.swap(0, 1);
+                                    bool_vertices.swap(1, 2);
+                                    bool_vertices.swap(2, 3);
 
                                     aos.swap(0, 1);
                                     aos.swap(1, 2);
@@ -400,20 +472,17 @@ impl Game {
                                 }
 
                                 mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
-                                    let light_level =
-                                        self.chunk_manager.get_block_light(neighbour_position);
-
                                     Vertex::from_vec(
-                                        vertices[vertice],
+                                        bool_vertices[vertice],
                                         local_position,
                                         uvs[vertice],
+                                        self.chunk_manager.get_light(neighbour_position),
                                         if model.name == "grass_block" && model_face.tint {
                                             Color::LIGHT_GREEN
                                         } else {
                                             Color::WHITE
                                         }
                                         .multiply_rgb(model_face.face.get_light_level())
-                                        .multiply_rgb(f32::from(light_level + 1) / 16.0)
                                         .multiply_rgb(aos[vertice]),
                                     )
                                 }));

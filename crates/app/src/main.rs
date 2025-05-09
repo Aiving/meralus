@@ -110,7 +110,9 @@ pub struct KeyboardController {
     released: HashSet<KeyCode>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct Debugging {
+    night: bool,
     overlay: bool,
     wireframe: bool,
     draw_borders: bool,
@@ -216,6 +218,7 @@ impl State for GameLoop {
         game.generate_mipmaps(4);
 
         game.generate_world(12723);
+        game.generate_lights();
         game.set_block_light(vec3(-13.0, 217.0, 0.0), 15);
 
         println!(
@@ -261,14 +264,19 @@ impl State for GameLoop {
             .with_restart_behaviour(RestartBehaviour::EndValue),
         );
 
+        let mut voxel_renderer = VoxelRenderer::new(display, world_mesh);
+
+        voxel_renderer.set_sun_position(0.5);
+
         Self {
             keyboard: KeyboardController::default(),
             animation_player,
             text_renderer,
-            voxel_renderer: VoxelRenderer::new(display, world_mesh),
+            voxel_renderer,
             shape_renderer: ShapeRenderer::new(display),
             window_matrix: Mat4::IDENTITY,
             debugging: Debugging {
+                night: false,
                 overlay: false,
                 wireframe: false,
                 draw_borders: false,
@@ -351,6 +359,13 @@ impl State for GameLoop {
             self.debugging.wireframe = !self.debugging.wireframe;
         }
 
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyN) {
+            self.debugging.night = !self.debugging.night;
+
+            self.voxel_renderer
+                .set_sun_position(if self.debugging.night { -0.5 } else { 0.5 });
+        }
+
         if self.keyboard.is_key_pressed_once(KeyCode::KeyO) {
             self.debugging.overlay = !self.debugging.overlay;
         }
@@ -426,6 +441,8 @@ impl State for GameLoop {
     }
 
     fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
+        self.voxel_renderer
+            .set_sun_position(self.animation_player.get_value("sun").unwrap());
         self.debugging.draw_calls = 0;
         self.debugging.vertices = 0;
 

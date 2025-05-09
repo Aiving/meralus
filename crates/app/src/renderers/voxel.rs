@@ -25,6 +25,7 @@ pub struct VoxelRenderer {
     draws: Vec<(IVec2, VertexBuffer<Vertex>, usize)>,
     vertices: usize,
     draw_calls: usize,
+    sun_position: f32,
 }
 
 impl VoxelRenderer {
@@ -56,11 +57,16 @@ impl VoxelRenderer {
             draws,
             vertices,
             draw_calls,
+            sun_position: 0.0,
         }
     }
 
     pub const fn get_debug_info(&self) -> (usize, usize) {
         (self.draw_calls, self.vertices)
+    }
+
+    pub const fn set_sun_position(&mut self, value: f32) {
+        self.sun_position = value;
     }
 
     pub fn render_with_params(
@@ -73,6 +79,7 @@ impl VoxelRenderer {
         for (origin, vertex_buffer, _) in &self.draws {
             let uniforms = uniform! {
                 origin: origin.to_array(),
+                sun_position: [0.0, self.sun_position, 0.0],
                 matrix: matrix.to_cols_array_2d(),
                 tex: atlas,
                 with_tex: true,
