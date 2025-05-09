@@ -30,7 +30,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: meralus-linux
-          path: target/release/meralus-app
+          path: |
+            crates/app/resources
+            target/release/meralus-app
   dev-build-win:
     runs-on: windows-latest
     steps:
@@ -41,5 +43,7 @@ jobs:
         run: cargo build --release --bin meralus-app
       - uses: actions/upload-artifact@v4
         with:
-          name: meralus-win.exe
-          path: target/release/meralus-app.exe
+          name: meralus-win
+          path: |
+            crates/app/resources
+            target/release/meralus-app.exe
