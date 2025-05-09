@@ -27,12 +27,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release --bin meralus-app
+      - name: Prettify
+        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/release/meralus-app tmp
       - uses: actions/upload-artifact@v4
         with:
           name: meralus-linux
-          path: |
-            crates/app/resources
-            target/release/meralus-app
+          path: tmp/**/*
   dev-build-win:
     runs-on: windows-latest
     steps:
@@ -41,9 +41,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release --bin meralus-app
+      - name: Prettify
+        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/release/meralus-app.exe tmp
       - uses: actions/upload-artifact@v4
         with:
           name: meralus-win
-          path: |
-            crates/app/resources
-            target/release/meralus-app.exe
+          path: tmp/**/*
