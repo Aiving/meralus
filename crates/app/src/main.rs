@@ -30,7 +30,7 @@ pub use self::{
 };
 use clap::Parser;
 use glam::{IVec2, Mat4, UVec2, Vec2, Vec3, vec3};
-use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode, RestartBehaviour};
+use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, WindowDisplay,
     glium::{
@@ -40,10 +40,9 @@ use meralus_engine::{
     },
 };
 use meralus_shared::{Color, Point2D, Rect2D, Size2D};
-use meralus_world::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
+use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
-use std::fmt::Write;
 use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
 use ui::UiContext;
 use util::BufferExt;
@@ -264,18 +263,6 @@ impl State for GameLoop {
             Animation::new(0.0, 1.0, 400, Curve::EASE_IN_OUT_EXPO, RepeatMode::Once),
         );
 
-        animation_player.add(
-            "xd",
-            Animation::new(
-                0.0,
-                192.0,
-                400,
-                Curve::EASE_IN_OUT_EXPO,
-                RepeatMode::Infinite,
-            )
-            .with_restart_behaviour(RestartBehaviour::EndValue),
-        );
-
         let mut voxel_renderer = VoxelRenderer::new(display, world_mesh);
 
         voxel_renderer.set_sun_position(0.5);
@@ -365,7 +352,6 @@ impl State for GameLoop {
         if self.keyboard.is_key_pressed_once(KeyCode::KeyR) {
             self.animation_player.enable();
             self.animation_player.play("loading-screen");
-            self.animation_player.play("xd");
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
@@ -504,80 +490,114 @@ impl State for GameLoop {
         }
 
         let animation_progress: f32 = self.animation_player.get_value("loading-screen").unwrap();
-        let xd_progress: f32 = self.animation_player.get_value("xd").unwrap();
 
         let mut context = UiContext::new(self, display, &mut frame);
 
         {
+            let chunk = ChunkManager::to_local(context.game_loop.player.position);
+
             let text = format!(
-                "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:{}",
+                "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nChunk: {} {}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:",
                 display
                     .get_free_video_memory()
                     .map_or_else(|| String::from("unknown"), util::format_bytes),
                 context.game_loop.player.position,
+                chunk.x,
+                chunk.y,
                 1.0 / delta,
                 delta * 1000.0,
                 context.game_loop.debugging.draw_calls,
                 context.game_loop.debugging.vertices,
-                context.game_loop.animation_player.animations().fold(
-                    String::new(),
-                    |mut data, (name, animation)| {
-                        let elapsed = animation.get_elapsed();
-                        let duration = animation.get_duration();
+            );
 
-                        write!(
-                            data,
-                            "\n |\n ---- #{name}: {:.2}, {:.1}% ({:.2}ms/{:.2}ms)",
+            let text_size = context.measure_text("default", &text, 18.0).unwrap();
+            let overlay_width = context
+                .game_loop
+                .animation_player
+                .get_value::<_, f32>("overlay-width")
+                .unwrap();
+
+            let text_bounds = Rect2D::new(
+                Point2D::new(12.0, 12.0),
+                Size2D::new((522.0 + 4.0) * overlay_width, text_size.height + 4.0),
+            );
+
+            context.bounds(text_bounds, |context, _| {
+                context.fill(Color::BLACK.with_alpha(0.25));
+
+                context.padding(2.0, |context, bounds| {
+                    context.clipped(bounds, |context, bounds| {
+                        context.draw_text(
+                            bounds.origin.to_vector(),
+                            "default",
+                            text,
+                            18.0,
+                            Color::WHITE,
+                        );
+                    });
+                });
+            });
+
+            for i in 0..context.game_loop.animation_player.len() {
+                let (finished, elapsed, duration, text) = {
+                    let (name, animation) = context.game_loop.animation_player.get_at(i).unwrap();
+                    let elapsed = animation.get_elapsed();
+                    let duration = animation.get_duration();
+
+                    (
+                        animation.is_finished(),
+                        elapsed,
+                        duration,
+                        format!(
+                            "#{name}: {:.2}, {:.1}% ({:.2}ms/{:.2}ms)",
                             animation.get::<f32>(),
                             (elapsed / duration) * 100.0,
                             elapsed * 1000.0,
                             duration * 1000.0
-                        )
-                        .unwrap();
+                        ),
+                    )
+                };
 
-                        data
-                    }
-                )
-            );
+                let text_size = context.measure_text("default", &text, 18.0).unwrap();
 
-            let text_size = context.measure_text("default", &text, 18.0).unwrap();
+                let offset = i as f32 * (text_size.height + 8.0);
 
-            context.bounds(
-                Rect2D::new(
-                    Point2D::new(12.0, 12.0),
-                    Size2D::new(
-                        (text_size.width + 4.0)
-                            * context
-                                .game_loop
-                                .animation_player
-                                .get_value::<_, f32>("overlay-width")
-                                .unwrap(),
-                        text_size.height + 4.0,
+                context.bounds(
+                    Rect2D::new(
+                        Point2D::new(
+                            12.0,
+                            text_bounds.origin.y + 2.0 + text_bounds.size.height + offset,
+                        ),
+                        Size2D::new((522.0 + 4.0) * overlay_width, text_size.height + 6.0),
                     ),
-                ),
-                |context, _| {
-                    context.fill(Color::BLACK.with_alpha(0.25));
+                    |context, root| {
+                        context.fill(Color::BLACK.with_alpha(0.25));
 
-                    context.padding(2.0, |context, bounds| {
-                        context.clipped(bounds, |context, bounds| {
-                            context.draw_text(
-                                bounds.origin.to_vector(),
-                                "default",
-                                text,
-                                18.0,
-                                Color::WHITE,
-                            );
+                        context.padding(2.0, |context, bounds| {
+                            context.clipped(bounds, |context, bounds| {
+                                context.draw_text(
+                                    bounds.origin.to_vector(),
+                                    "default",
+                                    text,
+                                    18.0,
+                                    Color::WHITE,
+                                );
+
+                                context.draw_rect(
+                                    (root.origin + Point2D::new(0.0, text_size.height + 4.0))
+                                        .to_vector(),
+                                    Size2D::new(root.size.width * (elapsed / duration), 2.0),
+                                    if finished {
+                                        Color::new(120, 255, 155, 255)
+                                    } else {
+                                        Color::new(120, 167, 255, 255)
+                                    },
+                                );
+                            });
                         });
-
-                        context.draw_rect(
-                            (bounds.origin + Point2D::new(-2.0, bounds.size.height + 2.0))
-                                .to_vector(),
-                            Size2D::new(48.0 + xd_progress, 48.0),
-                            Color::new(120, 167, 255, 255),
-                        );
-                    });
-                },
-            );
+                    },
+                );
+            }
         }
 
         context.ui(|context, bounds| {

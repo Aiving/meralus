@@ -1,9 +1,10 @@
 use crate::{Animation, TweenValue};
-use std::collections::{HashMap, HashSet};
+use indexmap::IndexMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AnimationPlayer {
-    animations: HashMap<String, Animation>,
+    animations: IndexMap<String, Animation>,
     running: HashSet<String>,
     enabled: bool,
 }
@@ -43,6 +44,16 @@ impl AnimationPlayer {
 
     pub fn add<T: Into<String>>(&mut self, name: T, animation: Animation) {
         self.animations.insert(name.into(), animation);
+    }
+
+    pub fn get_at(&self, index: usize) -> Option<(&str, &Animation)> {
+        self.animations
+            .get_index(index)
+            .map(|(name, animation)| (name.as_str(), animation))
+    }
+
+    pub fn get<T: AsRef<str>>(&mut self, name: T) -> Option<&Animation> {
+        self.animations.get(name.as_ref())
     }
 
     pub fn get_mut<T: AsRef<str>>(&mut self, name: T) -> Option<&mut Animation> {

@@ -1275,6 +1275,7 @@ dependencies = [
 name = "meralus-animation"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "meralus-shared",
 ]
 
