@@ -68,7 +68,7 @@ impl<'a> UiContext<'a> {
             data: text.into(),
             size,
             color,
-            clip: self.clip
+            clip: self.clip,
         });
     }
 
