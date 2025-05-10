@@ -30,7 +30,7 @@ jobs:
       - name: Build
         run: cargo build --release --bin meralus-app --target x86_64-unknown-linux-gnu
       - name: Compress
-        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/release/meralus-app tmp
+        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/x86_64-unknown-linux-gnu/release/meralus-app tmp
       - uses: actions/upload-artifact@v4
         with:
           name: meralus-linux
@@ -46,7 +46,7 @@ jobs:
       - name: Build
         run: cargo build --release --bin meralus-app --target x86_64-pc-windows-msvc
       - name: Compress
-        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/release/meralus-app.exe tmp
+        run: mkdir tmp && cp -r crates/app/resources tmp && cp target/x86_64-pc-windows-msvc/release/meralus-app.exe tmp
       - uses: actions/upload-artifact@v4
         with:
           name: meralus-win
