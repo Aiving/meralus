@@ -39,7 +39,7 @@ use meralus_engine::{
         winit::{event::KeyEvent, event_loop::ControlFlow, keyboard::PhysicalKey},
     },
 };
-use meralus_shared::{Color, FromValue, Point2D, Rect2D, Size2D};
+use meralus_shared::{Color, Point2D, Rect2D, Size2D};
 use meralus_world::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
@@ -48,8 +48,8 @@ use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
 use ui::UiContext;
 use util::BufferExt;
 
-const TEXT_COLOR: Color = Color::from_hsl(135.0, 0.15, 0.25);
-const BG_COLOR: Color = Color::new(126, 230, 152, 255);
+const TEXT_COLOR: Color = Color::from_hsl(120.0, 0.5, 0.4);
+const BG_COLOR: Color = Color::from_hsl(120.0, 0.4, 0.75);
 const BLENDING: Blend = Blend {
     color: BlendingFunction::Addition {
         source: LinearBlendingFactor::SourceAlpha,
@@ -210,8 +210,8 @@ fn chunk_borders(origin: IVec2) -> [Line; 12] {
     })
 }
 
-const DAY_COLOR: Color = Color::from_hsl(220.0, 1.0, 0.75);
-const NIGHT_COLOR: Color = Color::new(5, 10, 20, 255);
+const DAY_COLOR: Color = Color::from_hsl(220.0, 0.5, 0.75);
+const NIGHT_COLOR: Color = Color::from_hsl(220.0, 0.35, 0.25);
 
 const fn get_sky_color(night: bool) -> &'static Color {
     if night { &NIGHT_COLOR } else { &DAY_COLOR }
@@ -257,6 +257,11 @@ impl State for GameLoop {
         animation_player.add(
             "loading-screen",
             Animation::new(1.0, 0.0, 1000, Curve::LINEAR, RepeatMode::Once),
+        );
+
+        animation_player.add(
+            "overlay-width",
+            Animation::new(0.0, 1.0, 400, Curve::EASE_IN_OUT_EXPO, RepeatMode::Once),
         );
 
         animation_player.add(
@@ -358,8 +363,9 @@ impl State for GameLoop {
         self.animation_player.advance(delta);
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyR) {
-            self.animation_player.reset();
             self.animation_player.enable();
+            self.animation_player.play("loading-screen");
+            self.animation_player.play("xd");
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
@@ -375,6 +381,20 @@ impl State for GameLoop {
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyO) {
             self.debugging.overlay = !self.debugging.overlay;
+
+            if self.debugging.overlay {
+                self.animation_player
+                    .get_mut("overlay-width")
+                    .unwrap()
+                    .to(1.0);
+            } else {
+                self.animation_player
+                    .get_mut("overlay-width")
+                    .unwrap()
+                    .to(0.0);
+            }
+
+            self.animation_player.play("overlay-width");
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyB) {
@@ -447,6 +467,7 @@ impl State for GameLoop {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
         self.debugging.draw_calls = 0;
         self.debugging.vertices = 0;
@@ -454,10 +475,9 @@ impl State for GameLoop {
         let (width, height) = display.get_framebuffer_dimensions();
         let mut frame = display.draw();
 
-        frame.clear_color_and_depth(
-            <[f32; 4]>::from_value(get_sky_color(self.debugging.night)).into(),
-            1.0,
-        );
+        let [r, g, b] = get_sky_color(self.debugging.night).to_linear();
+
+        frame.clear_color_and_depth((r, g, b, 1.0), 1.0);
 
         self.voxel_renderer.render(
             &mut frame,
@@ -488,13 +508,79 @@ impl State for GameLoop {
 
         let mut context = UiContext::new(self, display, &mut frame);
 
-        context.ui(|context, bounds| {
-            context.draw_rect(
-                Point2D::new(256.0 + xd_progress, 12.0),
-                Size2D::new(48.0, 48.0),
-                Color::new(120, 167, 255, 255),
+        {
+            let text = format!(
+                "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:{}",
+                display
+                    .get_free_video_memory()
+                    .map_or_else(|| String::from("unknown"), util::format_bytes),
+                context.game_loop.player.position,
+                1.0 / delta,
+                delta * 1000.0,
+                context.game_loop.debugging.draw_calls,
+                context.game_loop.debugging.vertices,
+                context.game_loop.animation_player.animations().fold(
+                    String::new(),
+                    |mut data, (name, animation)| {
+                        let elapsed = animation.get_elapsed();
+                        let duration = animation.get_duration();
+
+                        write!(
+                            data,
+                            "\n |\n ---- #{name}: {:.2}, {:.1}% ({:.2}ms/{:.2}ms)",
+                            animation.get::<f32>(),
+                            (elapsed / duration) * 100.0,
+                            elapsed * 1000.0,
+                            duration * 1000.0
+                        )
+                        .unwrap();
+
+                        data
+                    }
+                )
             );
 
+            let text_size = context.measure_text("default", &text, 18.0).unwrap();
+
+            context.bounds(
+                Rect2D::new(
+                    Point2D::new(12.0, 12.0),
+                    Size2D::new(
+                        (text_size.width + 4.0)
+                            * context
+                                .game_loop
+                                .animation_player
+                                .get_value::<_, f32>("overlay-width")
+                                .unwrap(),
+                        text_size.height + 4.0,
+                    ),
+                ),
+                |context, _| {
+                    context.fill(Color::BLACK.with_alpha(0.25));
+
+                    context.padding(2.0, |context, bounds| {
+                        context.clipped(bounds, |context, bounds| {
+                            context.draw_text(
+                                bounds.origin.to_vector(),
+                                "default",
+                                text,
+                                18.0,
+                                Color::WHITE,
+                            );
+                        });
+
+                        context.draw_rect(
+                            (bounds.origin + Point2D::new(-2.0, bounds.size.height + 2.0))
+                                .to_vector(),
+                            Size2D::new(48.0 + xd_progress, 48.0),
+                            Color::new(120, 167, 255, 255),
+                        );
+                    });
+                },
+            );
+        }
+
+        context.ui(|context, bounds| {
             context.fill(BG_COLOR.with_alpha(animation_progress));
 
             let measured = context
@@ -537,35 +623,6 @@ impl State for GameLoop {
         });
 
         context.finish();
-
-        if self.debugging.overlay {
-            self.text_renderer.render(
-                &mut frame,
-                &self.window_matrix,
-                Point2D::new(12.0, 12.0),
-                "default",
-                format!(
-                    "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:{}",
-                    display.get_free_video_memory().map_or_else(|| String::from("unknown"), util::format_bytes),
-                    self.player.position,
-                    1.0 / delta,
-                    delta * 1000.0,
-                    self.debugging.draw_calls,
-                    self.debugging.vertices,
-                    self.animation_player.animations().fold(String::new(), |mut data, (name, animation)| {
-                        let elapsed = animation.get_elapsed();
-                        let duration = animation.get_duration();
-
-                        write!(data, "\n |\n ---- #{name}: {:.1}% ({:.2}ms/{:.2}ms)", (elapsed / duration) * 100.0, elapsed * 1000.0, duration * 1000.0).unwrap();
-
-                        data
-                    })
-                ),
-                18.0,
-                TEXT_COLOR,
-                &mut self.debugging.draw_calls
-            );
-        }
 
         frame.finish().expect("failed to finish draw frame");
 

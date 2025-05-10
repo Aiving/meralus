@@ -87,6 +87,11 @@ impl Animation {
         self
     }
 
+    pub fn to<T: Into<TweenValue>>(&mut self, value: T) {
+        self.origin = self.value;
+        self.destination = value.into();
+    }
+
     pub fn get<T: From<TweenValue>>(&self) -> T {
         self.value.into()
     }

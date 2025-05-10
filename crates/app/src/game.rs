@@ -11,9 +11,12 @@ use meralus_shared::Color;
 use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, Face, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use std::{
+    fs::DirEntry,
     ops::Range,
     path::{Path, PathBuf},
 };
+
+const GRASS_COLOR: Color = Color::from_hsl(120.0, 0.4, 0.75);
 
 pub struct Game {
     textures: TextureLoader,
@@ -358,11 +361,15 @@ impl Game {
     }
 
     pub fn load_buitlin_blocks(&mut self) {
-        if let Ok(mut root) = self.root.join("models").read_dir() {
-            while let Some(Ok(entry)) = root.next() {
-                if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
-                    self.blocks
-                        .load(&mut self.textures, &self.root, entry.path());
+        if let Ok(root) = self.root.join("models").read_dir() {
+            if let Ok(mut root) = root.collect::<Result<Vec<_>, _>>() {
+                root.sort_by_key(DirEntry::file_name);
+
+                for entry in root {
+                    if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
+                        self.blocks
+                            .load(&mut self.textures, &self.root, entry.path());
+                    }
                 }
             }
         }
@@ -464,7 +471,7 @@ impl Game {
                                         uvs[vertice],
                                         self.chunk_manager.get_light(neighbour_position),
                                         if model.name == "grass_block" && model_face.tint {
-                                            Color::LIGHT_GREEN
+                                            GRASS_COLOR
                                         } else {
                                             Color::WHITE
                                         }

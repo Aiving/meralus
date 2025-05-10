@@ -40,4 +40,4 @@ The Minimum Supported Rust Version is currently **1.85.1**.
 
 Dual-licensed to be compatible with the Rust project.
 
-Code is licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This project may not be copied, modified, or distributed except according to those terms.
+Everything (including textures) is licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) or the [MIT license](http://opensource.org/licenses/MIT), at your option. This project may not be copied, modified, or distributed except according to those terms.

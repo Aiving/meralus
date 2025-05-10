@@ -7,7 +7,7 @@ use meralus_engine::{
 use meralus_shared::Color;
 use meralus_world::Face;
 
-const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.1, 0.25, 0.5, 1.0];
+const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.4, 0.55, 0.75, 1.0];
 
 #[must_use]
 pub fn get_movement_direction(keyboard: &KeyboardController) -> Vec3 {

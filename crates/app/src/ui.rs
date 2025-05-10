@@ -1,5 +1,8 @@
 use crate::{GameLoop, renderers::Rectangle};
-use meralus_engine::{WindowDisplay, glium::Frame};
+use meralus_engine::{
+    WindowDisplay,
+    glium::{Frame, Rect},
+};
 use meralus_shared::{Color, Point2D, Rect2D, Size2D};
 
 struct Text {
@@ -8,15 +11,18 @@ struct Text {
     data: String,
     size: f32,
     color: Color,
+    clip: Option<Rect2D>,
 }
 
 pub struct UiContext<'a> {
+    window_size: Size2D,
     bounds: Rect2D,
-    game_loop: &'a mut GameLoop,
+    pub game_loop: &'a mut GameLoop,
     display: &'a WindowDisplay,
     frame: &'a mut Frame,
     rectangles: Vec<Rectangle>,
     texts: Vec<Text>,
+    clip: Option<Rect2D>,
 }
 
 impl<'a> UiContext<'a> {
@@ -28,12 +34,14 @@ impl<'a> UiContext<'a> {
         let (width, height) = display.get_framebuffer_dimensions();
 
         Self {
+            window_size: Size2D::new(width as f32, height as f32),
             bounds: Rect2D::new(Point2D::ZERO, Size2D::new(width as f32, height as f32)),
             game_loop,
             display,
             frame,
             rectangles: Vec::new(),
             texts: Vec::new(),
+            clip: None,
         }
     }
 
@@ -60,6 +68,7 @@ impl<'a> UiContext<'a> {
             data: text.into(),
             size,
             color,
+            clip: self.clip
         });
     }
 
@@ -91,12 +100,18 @@ impl<'a> UiContext<'a> {
                 text.data,
                 text.size,
                 text.color,
+                text.clip.map(|area| Rect {
+                    left: area.origin.x.floor() as u32,
+                    bottom: (area.origin.y).floor() as u32,
+                    width: area.size.width.floor() as u32,
+                    height: self.window_size.height.floor() as u32,
+                }),
                 &mut self.game_loop.debugging.draw_calls,
             );
         }
     }
 
-    pub fn ui<F: Fn(&mut UiContext, Rect2D)>(&mut self, func: F) {
+    pub fn ui<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, func: F) {
         func(self, self.bounds);
     }
 
@@ -104,7 +119,15 @@ impl<'a> UiContext<'a> {
         self.draw_rect(self.bounds.origin.into(), self.bounds.size, color);
     }
 
-    pub fn bounds<F: Fn(&mut UiContext, Rect2D)>(&mut self, bounds: Rect2D, func: F) {
+    pub fn clipped<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, bounds: Rect2D, func: F) {
+        self.clip.replace(bounds);
+
+        func(self, self.bounds);
+
+        self.clip.take();
+    }
+
+    pub fn bounds<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, bounds: Rect2D, func: F) {
         let temp = self.bounds;
 
         self.bounds = bounds;
@@ -114,7 +137,7 @@ impl<'a> UiContext<'a> {
         self.bounds = temp;
     }
 
-    pub fn padding<F: Fn(&mut UiContext, Rect2D)>(&mut self, value: f32, func: F) {
+    pub fn padding<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, value: f32, func: F) {
         self.bounds.origin += Point2D::ONE * value;
         self.bounds.size -= Size2D::ONE * value * 2.0;
 

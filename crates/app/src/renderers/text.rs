@@ -9,7 +9,7 @@ use image::ImageBuffer;
 use meralus_engine::{
     WindowDisplay,
     glium::{
-        DrawParameters, Frame, Program, Surface, VertexBuffer,
+        DrawParameters, Frame, Program, Rect, Surface, VertexBuffer,
         index::{NoIndices, PrimitiveType},
         uniform,
         uniforms::MagnifySamplerFilter,
@@ -180,6 +180,7 @@ impl TextRenderer {
         text: T,
         size: f32,
         color: Color,
+        clip_area: Option<Rect>,
         draw_calls: &mut usize,
     ) {
         if let Some(font_index) = self.font_name_map.get(font.as_ref()).copied() {
@@ -250,6 +251,7 @@ impl TextRenderer {
                     &uniforms,
                     &DrawParameters {
                         blend: BLENDING,
+                        scissor: clip_area,
                         ..Default::default()
                     },
                 )

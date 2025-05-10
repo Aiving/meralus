@@ -1,9 +1,10 @@
 use crate::{Animation, TweenValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AnimationPlayer {
     animations: HashMap<String, Animation>,
+    running: HashSet<String>,
     enabled: bool,
 }
 
@@ -28,14 +29,34 @@ impl AnimationPlayer {
 
     pub fn advance(&mut self, delta: f32) {
         if self.enabled {
-            for animation in self.animations.values_mut() {
-                animation.advance(delta);
+            for (name, animation) in &mut self.animations {
+                if self.running.contains(name) {
+                    animation.advance(delta);
+
+                    if animation.is_finished() {
+                        self.running.remove(name);
+                    }
+                }
             }
         }
     }
 
     pub fn add<T: Into<String>>(&mut self, name: T, animation: Animation) {
         self.animations.insert(name.into(), animation);
+    }
+
+    pub fn get_mut<T: AsRef<str>>(&mut self, name: T) -> Option<&mut Animation> {
+        self.animations.get_mut(name.as_ref())
+    }
+
+    pub fn play<T: Into<String>>(&mut self, name: T) {
+        let name = name.into();
+
+        if let Some(animation) = self.animations.get_mut(&name) {
+            animation.reset();
+
+            self.running.insert(name);
+        }
     }
 
     pub fn get_elapsed<T: AsRef<str>>(&self, name: T) -> Option<f32> {

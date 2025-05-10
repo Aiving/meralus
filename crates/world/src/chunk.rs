@@ -265,7 +265,7 @@ impl Chunk {
         }
 
         println!(
-            "[{:18}] Generated chunk at {}: {} non-air blocks",
+            "[{:18}] Generated chunk at {}: {} opaque blocks",
             "INFO/WorldGen".bright_green(),
             format!("{:>2} {:>2}", self.origin.x, self.origin.y)
                 .bright_blue()
