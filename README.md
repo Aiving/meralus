@@ -2,7 +2,7 @@
 
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT_or_Apache_2.0-634f7d.svg?style=for-the-badge)](LICENSE-APACHE)
 
-A voxel game that visually copies Minecraft as much as possible.
+A voxel game that visually copies Minecraft.
 
 ## Running
 
@@ -25,12 +25,11 @@ Note: animation player is disabled by default, so you need to press `R` to enabl
 
 ## Screenshots
 
-![image](https://github.com/user-attachments/assets/d22ff004-bbb2-4247-8900-ca5ab834feae)
-![image](https://github.com/user-attachments/assets/9c3fa070-0d1f-4441-ac33-61b328c3314d)
-![image](https://github.com/user-attachments/assets/d8344191-0129-4d15-af70-05b9d245427f)
-![image](https://github.com/user-attachments/assets/1ca95aae-0b86-4168-84e8-2ee99e6d0cf8)
-![image](https://github.com/user-attachments/assets/ee1fd219-3369-44e7-b0ba-15c6307808ad)
-
+![image](https://github.com/user-attachments/assets/d5956478-24bc-4edc-af8c-42b82a651531)
+![image](https://github.com/user-attachments/assets/33f30247-54a5-4f4c-acf5-4c6c9425af4a)
+![image](https://github.com/user-attachments/assets/b4c7117b-d41b-45aa-9e09-7323fa61fd0c)
+![image](https://github.com/user-attachments/assets/8abd0575-4c40-4fe3-b0ed-2350f157da78)
+![image](https://github.com/user-attachments/assets/6486251b-1ed7-44bf-9378-53159eac2243)
 
 ## MSRV
 
