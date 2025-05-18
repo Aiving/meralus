@@ -285,15 +285,15 @@ impl Game {
     }
 
     pub fn load_buitlin_blocks(&mut self) {
-        if let Ok(root) = self.root.join("models").read_dir() {
-            if let Ok(mut root) = root.collect::<Result<Vec<_>, _>>() {
-                root.sort_by_key(DirEntry::file_name);
+        if let Ok(root) = self.root.join("models").read_dir()
+            && let Ok(mut root) = root.collect::<Result<Vec<_>, _>>()
+        {
+            root.sort_by_key(DirEntry::file_name);
 
-                for entry in root {
-                    if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
-                        self.blocks
-                            .load(&mut self.textures, &self.root, entry.path());
-                    }
+            for entry in root {
+                if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
+                    self.blocks
+                        .load(&mut self.textures, &self.root, entry.path());
                 }
             }
         }

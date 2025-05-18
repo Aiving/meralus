@@ -428,15 +428,15 @@ impl State for GameLoop {
                     {
                         let image = image::DynamicImage::ImageRgba8(image_buffer).flipv();
 
-                        if fs::exists("debug").is_ok_and(Not::not) {
-                            if let Err(error) = fs::create_dir("debug") {
-                                println!(
-                                    "[{:18}] Failed to create debug directory: {error}",
-                                    " ERR/AtlasManager".bright_red(),
-                                );
+                        if fs::exists("debug").is_ok_and(Not::not)
+                            && let Err(error) = fs::create_dir("debug")
+                        {
+                            println!(
+                                "[{:18}] Failed to create debug directory: {error}",
+                                " ERR/AtlasManager".bright_red(),
+                            );
 
-                                break;
-                            }
+                            break;
                         }
 
                         if let Err(error) = image.save(format!("debug/atlas_{level}.png")) {
