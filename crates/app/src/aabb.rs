@@ -1,4 +1,6 @@
 use glam::DVec3;
+use glamour::ToRaw;
+use meralus_shared::Cube3D;
 use meralus_world::Face;
 
 use crate::{raycast::RayCastResult, util::VecExt};
@@ -109,5 +111,14 @@ impl Aabb {
         }
 
         a.map(|vec3d| RayCastResult::new2(vec3d, facing_at))
+    }
+}
+
+impl From<Cube3D> for Aabb {
+    fn from(value: Cube3D) -> Self {
+        Self {
+            min: value.origin.to_raw().as_dvec3(),
+            max: (value.origin + value.size.into()).to_raw().as_dvec3(),
+        }
     }
 }

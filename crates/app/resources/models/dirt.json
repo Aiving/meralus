@@ -1,10 +1,6 @@
 {
+    "parent": "cuboid_all_same",
     "textures": {
         "#all": "game:dirt"
-    },
-    "elements": [
-        {
-            "all": "#all"
-        }
-    ]
+    }
 }

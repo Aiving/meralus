@@ -1,6 +1,6 @@
 #version 140
 
-in uint corner;
+in vec3 corner;
 in uint position;
 in uint light;
 in vec2 uv;
@@ -22,8 +22,6 @@ vec4 toLinear(vec4 sRGB) {
 }
 
 void main() {
-  vec3 corn = vec3(((corner >> uint(2)) & uint(1)),
-                   ((corner >> uint(1)) & uint(1)), (corner & uint(1)));
   vec2 or = vec2(origin * 16);
   vec3 pos = vec3((position >> uint(12)) & uint(15), position & uint(255),
                   (position >> uint(8)) & uint(15));
@@ -32,11 +30,11 @@ void main() {
   float sun_light = (float((light >> uint(4)) & uint(15)) + 1.0) / 16.0;
 
   float light_intensity =
-      block_light + sun_light * max(sun_position.y * 0.96 + 0.6, 0.02);
+      block_light + sun_light * max(sun_position.y * 0.96 + 0.3, 0.02);
 
   vec4 linear_color = toLinear(color / 255.0);
 
-  gl_Position = matrix * vec4(vec3(or.x, 0.0, or.y) + pos + corn, 1.0);
+  gl_Position = matrix * vec4(vec3(or.x, 0.0, or.y) + pos + corner, 1.0);
   v_color = vec4(linear_color.rgb * light_intensity, linear_color.a);
 
   v_tex_coords = uv;

@@ -27,7 +27,8 @@ use std::{f32, fs, net::SocketAddrV4, ops::Not, time::Duration};
 use camera::Camera;
 use clap::Parser;
 use clock::Clock;
-use glam::{IVec2, Mat4, UVec2, Vec2, Vec3, vec3};
+use glam::{IVec2, Mat4, UVec2, Vec2, vec3};
+use glamour::FromRaw;
 use keyboard::KeyboardController;
 use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode};
 use meralus_engine::{
@@ -38,7 +39,7 @@ use meralus_engine::{
         winit::{event::MouseButton, event_loop::ControlFlow},
     },
 };
-use meralus_shared::{Color, Lerp, Point2D, Rect2D, Size2D};
+use meralus_shared::{Color, Cube3D, Lerp, Point2D, Point3D, Rect2D, Size2D, Size3D};
 use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
@@ -242,10 +243,10 @@ impl State for GameLoop {
                         let chunk_size = CHUNK_SIZE as f32;
                         let chunk_height = CHUNK_SIZE as f32 * SUBCHUNK_COUNT as f32;
 
-                        lines.extend(cube_outline(
-                            vec3(origin.x, 0.0, origin.y),
-                            vec3(chunk_size, chunk_height, chunk_size),
-                        ));
+                        lines.extend(cube_outline(Cube3D::new(
+                            Point3D::new(origin.x, 0.0, origin.y),
+                            Size3D::new(chunk_size, chunk_height, chunk_size),
+                        )));
 
                         lines
                     },
@@ -496,12 +497,14 @@ impl State for GameLoop {
             self.shape_renderer.set_default_matrix();
         }
 
-        if let Some(position) = self.player.looking_at {
+        if let Some(position) = self.player.looking_at
+            && let Some(model) = self.game.get_model_for(position)
+        {
             self.shape_renderer.set_matrix(self.camera.matrix());
             self.shape_renderer.draw_lines(
                 &mut frame,
                 display,
-                &cube_outline(position, Vec3::ONE),
+                &cube_outline(model.bounding_box + Point3D::from_raw(position)),
                 &mut self.debugging.draw_calls,
                 &mut self.debugging.vertices,
             );
@@ -582,13 +585,7 @@ Animation player:",
 
                 context.padding(2.0, |context, bounds| {
                     context.clipped(bounds, |context, bounds| {
-                        context.draw_text(
-                            bounds.origin.to_vector(),
-                            "default",
-                            text,
-                            18.0,
-                            Color::WHITE,
-                        );
+                        context.draw_text(bounds.origin, "default", text, 18.0, Color::WHITE);
                     });
                 });
             });
@@ -631,7 +628,7 @@ Animation player:",
                         context.padding(2.0, |context, bounds| {
                             context.clipped(bounds, |context, bounds| {
                                 context.draw_text(
-                                    bounds.origin.to_vector(),
+                                    bounds.origin,
                                     "default",
                                     text,
                                     18.0,
@@ -639,8 +636,7 @@ Animation player:",
                                 );
 
                                 context.draw_rect(
-                                    (root.origin + Point2D::new(0.0, text_size.height + 4.0))
-                                        .to_vector(),
+                                    root.origin + Point2D::new(0.0, text_size.height + 4.0).into(),
                                     Size2D::new(root.size.width * (elapsed / duration), 2.0),
                                     if finished {
                                         Color::new(120, 255, 155, 255)
@@ -661,14 +657,17 @@ Animation player:",
             let measured = context
                 .measure_text("default_bold", "Meralus", 64.0)
                 .unwrap();
-            let text_pos = Point2D::from_size((bounds.size - measured) / 2.0);
+            let text_pos = Point2D::from_tuple(((bounds.size - measured) / 2.0).to_tuple());
 
             let progress_width = bounds.size.width * 0.5;
             let progress_position = (bounds.size.width - progress_width) / 2.0;
             let offset = Point2D::new(progress_position, text_pos.y + 12.0 + measured.height);
 
             context.bounds(
-                Rect2D::new(bounds.origin + offset, Size2D::new(progress_width, 48.0)),
+                Rect2D::new(
+                    bounds.origin + offset.into(),
+                    Size2D::new(progress_width, 48.0),
+                ),
                 |context, _| {
                     context.fill(TEXT_COLOR.with_alpha(animation_progress));
 
@@ -677,7 +676,7 @@ Animation player:",
 
                         context.padding(2.0, |context, bounds| {
                             context.draw_rect(
-                                bounds.origin.into(),
+                                bounds.origin,
                                 bounds
                                     .size
                                     .with_width(bounds.size.width * (1.0 - animation_progress)),

@@ -20,9 +20,9 @@ pub enum RepeatMode {
 }
 
 impl RepeatMode {
-    /// Returns `true` if the repeat mode is [`Infinte`].
+    /// Returns `true` if the repeat mode is [`Infinite`].
     ///
-    /// [`Infinte`]: RepeatMode::Infinte
+    /// [`Infinite`]: RepeatMode::Infinite
     #[must_use]
     pub const fn is_infinite(&self) -> bool {
         matches!(self, Self::Infinite)

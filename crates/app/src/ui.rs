@@ -117,7 +117,7 @@ impl<'a> UiContext<'a> {
     }
 
     pub fn fill(&mut self, color: Color) {
-        self.draw_rect(self.bounds.origin.into(), self.bounds.size, color);
+        self.draw_rect(self.bounds.origin, self.bounds.size, color);
     }
 
     pub fn clipped<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, bounds: Rect2D, func: F) {
@@ -139,12 +139,12 @@ impl<'a> UiContext<'a> {
     }
 
     pub fn padding<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, value: f32, func: F) {
-        self.bounds.origin += Point2D::ONE * value;
+        self.bounds.origin += Point2D::ONE.to_vector() * value;
         self.bounds.size -= Size2D::ONE * value * 2.0;
 
         func(self, self.bounds);
 
-        self.bounds.origin -= Point2D::ONE * value;
+        self.bounds.origin -= Point2D::ONE.to_vector() * value;
         self.bounds.size += Size2D::ONE * value * 2.0;
     }
 }

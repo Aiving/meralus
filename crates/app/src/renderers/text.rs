@@ -219,7 +219,7 @@ impl TextRenderer {
                         font_info.atlas.append(glyph.key, image)
                     };
 
-                    vertex.screen_position = position + Point2D::new(glyph.x, glyph.y);
+                    vertex.screen_position = position + Point2D::new(glyph.x, glyph.y).into();
                     vertex.offset = offset;
                     vertex.size = size;
                 } else {

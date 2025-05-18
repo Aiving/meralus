@@ -1,8 +1,8 @@
 use std::{fs, path::Path};
 
-use meralus_world::{BlockModel, Property, TextureId};
+use meralus_world::{BlockModel, Property, TexturePath, TextureRef};
 
-use super::texture::TextureLoader;
+use super::{LoadingError, LoadingResult, ModelLoadingError, texture::TextureLoader};
 
 pub trait Block {
     fn get_properties(&self) -> Vec<Property>;
@@ -17,26 +17,50 @@ impl BlockManager {
         self.blocks.push(Box::new(block) as Box<dyn Block>);
     }
 
+    fn load_block<P: AsRef<Path>, R: AsRef<Path>>(root: R, path: P) -> LoadingResult<BlockModel> {
+        let path = path.as_ref().with_extension("json");
+        let data = fs::read(&path).map_err(|_| LoadingError::Model(ModelLoadingError::NotFound))?;
+        let block = BlockModel::from_slice(&data)
+            .map_err(|err| LoadingError::Model(ModelLoadingError::ParsingFailed(err)))?;
+
+        let block = if let Some(parent) = block
+            .parent
+            .as_ref()
+            .and_then(|parent| path.parent().map(|dir| dir.join(parent)))
+        {
+            let mut parent_block = Self::load_block(root.as_ref(), parent)?;
+
+            parent_block.textures.extend(block.textures);
+            parent_block.elements.extend(block.elements);
+
+            parent_block
+        } else {
+            block
+        };
+
+        Ok(block)
+    }
+
     pub fn load<P: AsRef<Path>, R: AsRef<Path>>(
         textures: &mut TextureLoader,
         root: R,
         path: P,
-    ) -> Option<BlockModel> {
-        let path = path.as_ref().with_extension("json");
-        let data = fs::read(&path).ok()?;
-        let block = BlockModel::from_slice(&data).ok()?;
+    ) -> LoadingResult<BlockModel> {
+        let block = Self::load_block(root.as_ref(), path)?;
 
-        for TextureId(mod_name, path) in block.textures.values() {
-            if mod_name == "game" {
+        for texture_ref in block.textures.values() {
+            if let TextureRef::Path(TexturePath(mod_name, path)) = texture_ref
+                && mod_name == "game"
+            {
                 textures.load(
                     root.as_ref()
                         .join("textures")
                         .join(path)
                         .with_extension("png"),
-                );
+                )?;
             }
         }
 
-        Some(block)
+        Ok(block)
     }
 }

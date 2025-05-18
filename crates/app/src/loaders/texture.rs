@@ -11,6 +11,10 @@ use meralus_engine::{
 };
 use owo_colors::OwoColorize;
 
+use crate::loaders::LoadingError;
+
+use super::LoadingResult;
+
 const fn alpha_blend(mut one: u32, mut two: u32) -> (u8, u8, u8, u8) {
     let mut i = (one as i32 & -16777216) as u32 >> 24 & 255;
     let mut j = (two as i32 & -16777216) as u32 >> 24 & 255;
@@ -226,6 +230,12 @@ pub struct TextureLoader {
     atlas: TextureAtlas<String>,
 }
 
+#[derive(Debug)]
+pub enum TextureLoadingError {
+    InvalidPath,
+    NotFound,
+}
+
 impl TextureLoader {
     pub const ATLAS_SIZE: u32 = 4096;
 
@@ -251,7 +261,7 @@ impl TextureLoader {
         self.atlas.generate_mipmaps(level);
     }
 
-    pub fn load<P: AsRef<Path>>(&mut self, path: P) {
+    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> LoadingResult<()> {
         let path = path.as_ref();
 
         println!(
@@ -260,24 +270,25 @@ impl TextureLoader {
             path.display().bright_blue().bold()
         );
 
-        if let Some(name) = path.file_stem() {
-            let name = name.to_string_lossy();
-            let name = name.to_string();
+        let name = path.file_stem().ok_or(LoadingError::Texture(TextureLoadingError::InvalidPath))?;
+        let name = name.to_string_lossy();
+        let name = name.to_string();
 
-            if self.atlas.contains(&name) {
-                return;
-            }
-
-            match image::ImageReader::open(path).and_then(image::ImageReader::with_guessed_format) {
-                Ok(value) => {
-                    if let Ok(value) = value.decode() {
-                        let image = value.to_rgba8();
-
-                        self.atlas.append(name, image);
-                    }
-                }
-                Err(err) => panic!("Failed to load texture: {err}"),
-            }
+        if self.atlas.contains(&name) {
+            return Ok(());
         }
+
+        match image::ImageReader::open(path).and_then(image::ImageReader::with_guessed_format) {
+            Ok(value) => {
+                if let Ok(value) = value.decode() {
+                    let image = value.to_rgba8();
+
+                    self.atlas.append(name, image);
+                }
+            }
+            Err(_) => return Err(LoadingError::Texture(TextureLoadingError::NotFound)),
+        }
+
+        Ok(())
     }
 }

@@ -1,9 +1,10 @@
 use glam::{DVec3, Vec2, Vec3, vec2, vec3};
+use glamour::ToRaw;
 use meralus_engine::{
     KeyCode,
     glium::{buffer::ReadError, pixel_buffer::PixelBuffer},
 };
-use meralus_shared::Color;
+use meralus_shared::{Color, Cube3D};
 use meralus_world::Face;
 
 use crate::{Camera, KeyboardController, renderers::Line};
@@ -217,25 +218,37 @@ pub fn format_bytes(bytes: usize) -> String {
     format!("{value:.2}GB")
 }
 
-pub fn cube_outline(origin: Vec3, size: Vec3) -> [Line; 12] {
+pub fn cube_outline(Cube3D { origin, size }: Cube3D) -> [Line; 12] {
     [
-        [[0.0, 0.0, 0.0], [0.0, size.y, 0.0]],
-        [[size.x, 0.0, 0.0], [size.x, size.y, 0.0]],
-        [[0.0, 0.0, size.x], [0.0, size.y, size.z]],
-        [[size.x, 0.0, size.z], [size.x, size.y, size.z]],
-        [[0.0, 0.0, 0.0], [size.x, 0.0, 0.0]],
-        [[0.0, 0.0, 0.0], [0.0, 0.0, size.z]],
-        [[size.x, 0.0, 0.0], [size.x, 0.0, size.z]],
-        [[0.0, 0.0, size.z], [size.x, 0.0, size.z]],
-        [[0.0, size.y, 0.0], [size.x, size.y, 0.0]],
-        [[0.0, size.y, 0.0], [0.0, size.y, size.z]],
-        [[size.x, size.y, 0.0], [size.x, size.y, size.z]],
-        [[0.0, size.y, size.z], [size.x, size.y, size.z]],
+        [[0.0, 0.0, 0.0], [0.0, size.height, 0.0]],
+        [[size.width, 0.0, 0.0], [size.width, size.height, 0.0]],
+        [[0.0, 0.0, size.depth], [0.0, size.height, size.depth]],
+        [[size.width, 0.0, size.depth], [
+            size.width,
+            size.height,
+            size.depth,
+        ]],
+        [[0.0, 0.0, 0.0], [size.width, 0.0, 0.0]],
+        [[0.0, 0.0, 0.0], [0.0, 0.0, size.depth]],
+        [[size.width, 0.0, 0.0], [size.width, 0.0, size.depth]],
+        [[0.0, 0.0, size.depth], [size.width, 0.0, size.depth]],
+        [[0.0, size.height, 0.0], [size.width, size.height, 0.0]],
+        [[0.0, size.height, 0.0], [0.0, size.height, size.depth]],
+        [[size.width, size.height, 0.0], [
+            size.width,
+            size.height,
+            size.depth,
+        ]],
+        [[0.0, size.height, size.depth], [
+            size.width,
+            size.height,
+            size.depth,
+        ]],
     ]
     .map(|[start, end]| {
         Line::new(
-            origin + Vec3::from_array(start),
-            origin + Vec3::from_array(end),
+            origin.to_raw() + Vec3::from_array(start),
+            origin.to_raw() + Vec3::from_array(end),
             Color::BLUE,
         )
     })

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use glam::{DVec3, IVec2, U16Vec3, Vec2, Vec3, ivec3, u16vec3, vec3};
+use glam::{DVec3, IVec2, Mat4, U16Vec3, Vec2, Vec3, ivec3, u16vec3, vec3};
 use meralus_engine::{
     Vertex, WindowDisplay,
     glium::{
@@ -13,11 +13,12 @@ use meralus_engine::{
     },
 };
 use meralus_shared::Color;
-use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, Face, SUBCHUNK_COUNT};
+use meralus_world::{Axis, CHUNK_SIZE, Chunk, ChunkManager, Face, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 
 use crate::{
     Aabb, BakedBlockModelLoader, TextureLoader,
+    loaders::BakedBlockModel,
     mesh::Mesh,
     raycast::{HitType, RayCastResult},
     vertex_ao,
@@ -60,7 +61,12 @@ impl BfsLight {
         self.queue.push(node);
     }
 
-    fn calculate(&mut self, chunk_manager: &mut ChunkManager, is_sky_light: bool) {
+    fn calculate(
+        &mut self,
+        chunk_manager: &mut ChunkManager,
+        blocks: &BakedBlockModelLoader,
+        is_sky_light: bool,
+    ) {
         while let Some(node) = self.queue.pop() {
             if let Some(chunk) = chunk_manager.get_chunk_mut(&node.1) {
                 let local_position = node.get_position();
@@ -81,7 +87,9 @@ impl BfsLight {
                             continue;
                         }
 
-                        if chunk.get_block_unchecked(local_position).is_none()
+                        if chunk
+                            .get_block_unchecked(local_position)
+                            .is_none_or(|block| !blocks.get(block.into()).unwrap().is_opaque())
                             && chunk.get_light(local_position, is_sky_light) + 2 <= light_level
                         {
                             chunk.set_light(
@@ -172,7 +180,7 @@ impl Game {
             }
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, true);
+        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, true);
     }
 
     pub fn generate_lights(&mut self) {
@@ -183,7 +191,10 @@ impl Game {
                 for x in 0..CHUNK_SIZE {
                     let position = u16vec3(x as u16, 255, z as u16);
 
-                    if chunk.get_block_unchecked(position).is_none() {
+                    if chunk
+                        .get_block_unchecked(position)
+                        .is_none_or(|block| !self.blocks.get(block.into()).unwrap().is_opaque())
+                    {
                         chunk.set_sky_light(position, 15);
 
                         bfs_light.push(LightNode(position, chunk.origin));
@@ -192,7 +203,7 @@ impl Game {
             }
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, true);
+        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, true);
     }
 
     pub fn set_block_light(&mut self, position: Vec3, light_level: u8) {
@@ -209,11 +220,13 @@ impl Game {
             bfs_light.push(LightNode(position, chunk.origin));
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, false);
+        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, false);
     }
 
     pub fn load_block<P: AsRef<Path>>(&mut self, path: P) {
-        self.blocks.load(&mut self.textures, &self.root, path);
+        self.blocks
+            .load(&mut self.textures, &self.root, path)
+            .unwrap();
     }
 
     pub fn collides(&self, aabb: Aabb) -> bool {
@@ -291,9 +304,12 @@ impl Game {
             root.sort_by_key(DirEntry::file_name);
 
             for entry in root {
-                if entry.metadata().is_ok_and(|metadata| metadata.is_file()) {
+                if entry.metadata().is_ok_and(|metadata| metadata.is_file())
+                    && !entry.file_name().to_string_lossy().starts_with("cuboid")
+                {
                     self.blocks
-                        .load(&mut self.textures, &self.root, entry.path());
+                        .load(&mut self.textures, &self.root, entry.path())
+                        .unwrap();
                 }
             }
         }
@@ -304,7 +320,7 @@ impl Game {
     }
 
     pub fn load_texture<P: AsRef<Path>>(&mut self, path: P) {
-        self.textures.load(path);
+        self.textures.load(path).unwrap();
     }
 
     pub const fn get_texture_atlas(&self) -> &Texture2d {
@@ -352,15 +368,11 @@ impl Game {
             let end = target.floor();
 
             let mut position = start.as_vec3();
-            let block = self.chunk_manager.get_block(position);
+            let block = self.get_model_for(position);
 
-            if block.is_some() {
-                let result = Self::raycast_into(
-                    position,
-                    origin,
-                    target,
-                    Aabb::new(DVec3::ZERO, DVec3::ONE),
-                );
+            if let Some(block) = block {
+                let result =
+                    Self::raycast_into(position, origin, target, Aabb::from(block.bounding_box));
 
                 if result.is_some() {
                     return result;
@@ -485,14 +497,14 @@ impl Game {
 
                 position = start.as_vec3();
 
-                let block = self.chunk_manager.get_block(position);
+                let block = self.get_model_for(position);
 
-                if block.is_some() {
+                if let Some(block) = block {
                     let result = Self::raycast_into(
                         position,
                         origin,
                         target,
-                        Aabb::new(DVec3::ZERO, DVec3::ONE),
+                        Aabb::from(block.bounding_box),
                     );
 
                     if result.is_some() {
@@ -522,6 +534,13 @@ impl Game {
             .map(|chunk| self.compute_chunk_mesh(chunk))
     }
 
+    pub fn get_model_for(&self, position: Vec3) -> Option<&BakedBlockModel> {
+        self.chunk_manager
+            .get_block(position)
+            .and_then(|block| self.blocks.get(block.into()))
+    }
+
+    #[allow(clippy::too_many_lines)]
     pub fn compute_chunk_mesh(&self, chunk: &Chunk) -> [Mesh; 6] {
         let origin = chunk.origin.as_vec2();
         let mut meshes = Face::ALL.map(Mesh::empty);
@@ -544,62 +563,118 @@ impl Game {
                         let position = local_position.as_vec3()
                             + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
 
-                        for model_face in &model.faces {
-                            let neighbour_position =
-                                float_position + model_face.face.as_normal().as_vec3();
+                        for element in &model.elements {
+                            let matrix = element.rotation.map(|rotation| {
+                                let angle = rotation.angle.to_radians();
 
-                            if self.chunk_manager.get_block(neighbour_position).is_none() {
-                                let mesh = &mut meshes[model_face.face.normal_index()];
+                                let matrix;
+                                let mut scale = Vec3::ZERO;
 
-                                mesh.face = model_face.face;
+                                match rotation.axis {
+                                    Axis::X => {
+                                        matrix = Mat4::from_rotation_x(angle);
 
-                                let mut bool_vertices = model_face.face.as_bool_vertices();
-                                let mut uvs = model_face.uv;
-                                let mut overlay_uvs = model_face.overlay_uv.unwrap_or_default();
+                                        scale.y = 1.0;
+                                        scale.z = 1.0;
+                                    }
+                                    Axis::Y => {
+                                        matrix = Mat4::from_rotation_y(angle);
 
-                                let mut aos = model_face.face.as_vertice_corners().map(|corner| {
-                                    let [side1, side2, corner] =
-                                        corner.get_neighbours(model_face.face).map(|neighbour| {
-                                            self.chunk_manager
-                                                .contains_block(position + neighbour.as_vec3())
-                                        });
+                                        scale.x = 1.0;
+                                        scale.z = 1.0;
+                                    }
+                                    Axis::Z => {
+                                        matrix = Mat4::from_rotation_z(angle);
 
-                                    vertex_ao(side1, side2, corner)
-                                });
-
-                                if aos[1] + aos[2] > aos[0] + aos[3] {
-                                    bool_vertices.swap(0, 1);
-                                    bool_vertices.swap(1, 2);
-                                    bool_vertices.swap(2, 3);
-
-                                    aos.swap(0, 1);
-                                    aos.swap(1, 2);
-                                    aos.swap(2, 3);
-
-                                    overlay_uvs.swap(0, 1);
-                                    overlay_uvs.swap(1, 2);
-                                    overlay_uvs.swap(2, 3);
-
-                                    uvs.swap(0, 1);
-                                    uvs.swap(1, 2);
-                                    uvs.swap(2, 3);
+                                        scale.x = 1.0;
+                                        scale.y = 1.0;
+                                    }
                                 }
 
-                                mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
-                                    Vertex::from_vec(
-                                        bool_vertices[vertice],
-                                        local_position,
-                                        uvs[vertice],
-                                        self.chunk_manager.get_light(neighbour_position),
-                                        if model.name == "grass_block" && model_face.tint {
-                                            GRASS_COLOR
-                                        } else {
-                                            Color::WHITE
-                                        }
-                                        .multiply_rgb(model_face.face.get_light_level())
-                                        .multiply_rgb(aos[vertice]),
-                                    )
-                                }));
+                                scale = Vec3::ONE;
+
+                                (matrix, scale, rotation.origin)
+                            });
+
+                            for model_face in element.faces.iter().flatten() {
+                                let neighbour_position =
+                                    float_position + model_face.face.as_normal().as_vec3();
+
+                                if model_face.cull_face.is_none_or(|face| {
+                                    self.chunk_manager
+                                        .get_block(float_position + face.as_normal().as_vec3())
+                                        .is_none_or(|block| {
+                                            !self.blocks.get(block.into()).unwrap().is_opaque()
+                                        })
+                                }) {
+                                    let mesh = &mut meshes[model_face.face.normal_index()];
+
+                                    let mut vertices =
+                                        model_face.face.as_vertices().map(|vertice| {
+                                            Vec3::from_array(element.cube.origin.to_array())
+                                                + vertice
+                                                    * Vec3::from_array(element.cube.size.to_array())
+                                        });
+
+                                    let mut uvs = model_face.uv;
+
+                                    let mut aos =
+                                        model_face.face.as_vertice_corners().map(|corner| {
+                                            let [side1, side2, corner] = corner
+                                                .get_neighbours(model_face.face)
+                                                .map(|neighbour| {
+                                                    self.chunk_manager
+                                                        .get_block(position + neighbour.as_vec3())
+                                                        .is_some_and(|block| {
+                                                            self.blocks
+                                                                .get(block.into())
+                                                                .unwrap()
+                                                                .ambient_occlusion
+                                                        })
+                                                });
+
+                                            vertex_ao(side1, side2, corner)
+                                        });
+
+                                    if aos[1] + aos[2] > aos[0] + aos[3] {
+                                        vertices.swap(0, 1);
+                                        vertices.swap(1, 2);
+                                        vertices.swap(2, 3);
+
+                                        aos.swap(0, 1);
+                                        aos.swap(1, 2);
+                                        aos.swap(2, 3);
+
+                                        uvs.swap(0, 1);
+                                        uvs.swap(1, 2);
+                                        uvs.swap(2, 3);
+                                    }
+
+                                    mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
+                                        let corner = matrix.map_or(
+                                            vertices[vertice],
+                                            |(matrix, scale, origin)| {
+                                                matrix.transform_point3(vertices[vertice] - origin)
+                                                    * scale
+                                                    + origin
+                                            },
+                                        );
+
+                                        Vertex::from_vec(
+                                            corner,
+                                            local_position,
+                                            uvs[vertice],
+                                            self.chunk_manager.get_light(neighbour_position),
+                                            if model.name == "grass_block" && model_face.tint {
+                                                GRASS_COLOR
+                                            } else {
+                                                Color::WHITE
+                                            }
+                                            .multiply_rgb(model_face.face.get_light_level())
+                                            .multiply_rgb(aos[vertice]),
+                                        )
+                                    }));
+                                }
                             }
                         }
                     }

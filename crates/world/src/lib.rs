@@ -14,8 +14,11 @@ mod chunk_manager;
 pub use self::{
     block::{
         Axis, BlockCondition, BlockElement, BlockFace, BlockModel, BlockState, BlockStates,
-        ConditionValue, Corner, Face, Faces, Property, PropertyValue, TextureId,
+        ConditionValue, Corner, ElementRotation, Face, Faces, Property, PropertyValue, TextureId,
+        TexturePath, TextureRef,
     },
     chunk::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT, SubChunk},
     chunk_manager::ChunkManager,
 };
+
+pub use serde_json::Error as JsonError;

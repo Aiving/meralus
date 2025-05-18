@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use glam::{U16Vec3, UVec2, Vec2, uvec2, vec2};
+use glam::{uvec2, vec2, U16Vec3, UVec2, Vec2, Vec3};
 pub use glium;
 use glium::{Display, vertex::AttributeType};
 use glutin::{
@@ -34,7 +34,7 @@ pub use winit::{
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
-    pub corner: u8,
+    pub corner: Vec3,
     pub light: u8,
     pub position: u16,
     pub uv: Vec2,
@@ -47,7 +47,7 @@ impl Vertex {
             Cow::Borrowed("corner"),
             glium::__glium_offset_of!(Vertex, corner),
             -1,
-            AttributeType::U8,
+            AttributeType::F32F32F32,
             false,
         ),
         (
@@ -81,13 +81,12 @@ impl Vertex {
     ];
 
     pub const fn from_vec(
-        corner: [bool; 3],
+        corner: Vec3,
         position: U16Vec3,
         uv: Vec2,
         light: u8,
         color: Color,
     ) -> Self {
-        let corner = ((corner[0] as u8) << 2) | ((corner[1] as u8) << 1) | corner[2] as u8;
         let position = (position.x << 12) | (position.z << 8) | position.y;
 
         Self {
