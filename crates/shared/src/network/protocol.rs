@@ -1,9 +1,10 @@
-use serde::{Deserialize, Serialize};
 use std::{
     io::{self, Cursor},
     marker::PhantomData,
     pin::Pin,
 };
+
+use serde::{Deserialize, Serialize};
 use tokio::net::{
     TcpStream,
     tcp::{OwnedReadHalf, OwnedWriteHalf},

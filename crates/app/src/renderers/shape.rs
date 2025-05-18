@@ -1,5 +1,3 @@
-use super::Shader;
-use crate::{BLENDING, impl_vertex};
 use glam::{Mat4, Vec2, Vec3};
 use meralus_engine::{
     WindowDisplay,
@@ -11,11 +9,14 @@ use meralus_engine::{
 };
 use meralus_shared::Color;
 
+use super::Shader;
+use crate::{BLENDING, impl_vertex};
+
 struct ShapeShader;
 
 impl Shader for ShapeShader {
-    const VERTEX: &str = include_str!("../../resources/shaders/shape.vs");
     const FRAGMENT: &str = include_str!("../../resources/shaders/shape.fs");
+    const VERTEX: &str = include_str!("../../resources/shaders/shape.vs");
 }
 
 #[repr(C)]

@@ -130,8 +130,11 @@ pub trait State {
     ) {
     }
 
-    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {}
+    /// Runs every 50ms
+    fn tick(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: Duration) {}
+    /// Runs every 16.66ms
     fn fixed_update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {}
+    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: Duration) {}
     fn render(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32);
 }
 
@@ -140,7 +143,8 @@ pub struct ApplicationWindow<T: State> {
     window: Window,
     display: WindowDisplay,
     last_time: Option<Instant>,
-    acceleration: Duration,
+    tick_acceleration: Duration,
+    fixed_acceleration: Duration,
     delta: Duration,
     cursor_grab: bool,
 }
@@ -262,7 +266,8 @@ impl ApplicationWindowBuilder {
             window,
             display,
             last_time: None,
-            acceleration: Duration::ZERO,
+            tick_acceleration: Duration::ZERO,
+            fixed_acceleration: Duration::ZERO,
             delta: FIXED_FRAMERATE,
             cursor_grab: false,
         }
@@ -281,7 +286,8 @@ impl<T> InspectMut<T> for Option<T> {
     }
 }
 
-const FIXED_FRAMERATE: Duration = Duration::from_secs(1)
+pub const TICK_RATE: Duration = Duration::from_millis(50);
+pub const FIXED_FRAMERATE: Duration = Duration::from_secs(1)
     .checked_div(60)
     .expect("failed to calculate fixed framerate somehow");
 
@@ -370,12 +376,11 @@ impl<T: State> ApplicationHandler for Application<T> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.window.inspect_mut(|window| {
-            window.window.set_transparent(false);
+            window.fixed_acceleration += window.delta;
+            window.tick_acceleration += window.delta;
 
-            window.acceleration += window.delta;
-
-            while window.acceleration > FIXED_FRAMERATE {
-                window.acceleration -= FIXED_FRAMERATE;
+            while window.fixed_acceleration > FIXED_FRAMERATE {
+                window.fixed_acceleration -= FIXED_FRAMERATE;
 
                 window.state.fixed_update(
                     event_loop,
@@ -384,9 +389,15 @@ impl<T: State> ApplicationHandler for Application<T> {
                 );
             }
 
+            while window.tick_acceleration > TICK_RATE {
+                window.tick_acceleration -= TICK_RATE;
+
+                window.state.tick(event_loop, &window.display, TICK_RATE);
+            }
+
             window
                 .state
-                .update(event_loop, &window.display, window.delta.as_secs_f32());
+                .update(event_loop, &window.display, window.delta);
 
             window
                 .state

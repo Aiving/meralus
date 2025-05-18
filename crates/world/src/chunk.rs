@@ -1,7 +1,8 @@
+use std::io::{self, Read};
+
 use glam::{IVec2, IVec3, U16Vec3, Vec3, vec3};
 use noise::{Fbm, NoiseFn, Perlin};
 use owo_colors::OwoColorize;
-use std::io::{self, Read};
 
 pub const CHUNK_SIZE: usize = 16;
 pub const SUBCHUNK_COUNT: usize = 16;
@@ -23,7 +24,8 @@ impl SubChunk {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Part of the world consisting of subchunks, number of which is specified by [`SUBCHUNK_COUNT`] constant.
+/// Part of the world consisting of subchunks, number of which is specified by
+/// [`SUBCHUNK_COUNT`] constant.
 pub struct Chunk {
     /// Chunk location on a 2D grid
     pub origin: IVec2,
@@ -32,6 +34,12 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    #[allow(clippy::large_stack_arrays)]
+    pub const EMPTY: Self = Self {
+        origin: IVec2::ZERO,
+        subchunks: [SubChunk::EMPTY; SUBCHUNK_COUNT],
+    };
+
     pub fn deserialize<T: AsRef<[u8]>>(data: T) -> io::Result<Self> {
         let mut value = Self::EMPTY;
 
@@ -85,12 +93,6 @@ impl Chunk {
         data
     }
 
-    #[allow(clippy::large_stack_arrays)]
-    pub const EMPTY: Self = Self {
-        origin: IVec2::ZERO,
-        subchunks: [SubChunk::EMPTY; SUBCHUNK_COUNT],
-    };
-
     pub fn to_local(&self, position: Vec3) -> U16Vec3 {
         let position = position.floor();
 
@@ -127,14 +129,14 @@ impl Chunk {
             && (0..SUBCHUNK_COUNT).contains(&((position.y.floor() as i32 >> 4) as usize))
     }
 
-    pub fn set_block(&mut self, position: Vec3, block: u8) {
-        if self.contains_position(position) {
+    pub fn set_block(&mut self, position: U16Vec3, block: u8) {
+        if self.contains_local_position(position) {
             self.set_block_unchecked(position, block);
         }
     }
 
-    pub fn set_block_unchecked(&mut self, position: Vec3, block: u8) {
-        let [x, y, z] = self.to_local(position).to_array().map(usize::from);
+    pub fn set_block_unchecked(&mut self, position: U16Vec3, block: u8) {
+        let [x, y, z] = position.to_array().map(usize::from);
         let [subchunk, y] = self.get_subchunk_index(y);
 
         self.subchunks[subchunk].blocks[y][z][x] = block;
@@ -191,11 +193,27 @@ impl Chunk {
         }
     }
 
-    pub fn get_sun_light(&self, position: U16Vec3) -> u8 {
+    pub fn get_light(&self, position: U16Vec3, is_sky_light: bool) -> u8 {
+        if is_sky_light {
+            self.get_sky_light(position)
+        } else {
+            self.get_block_light(position)
+        }
+    }
+
+    pub fn set_light(&mut self, position: U16Vec3, is_sky_light: bool, value: u8) {
+        if is_sky_light {
+            self.set_sky_light(position, value);
+        } else {
+            self.set_block_light(position, value);
+        }
+    }
+
+    pub fn get_sky_light(&self, position: U16Vec3) -> u8 {
         (self.get_light_level(position) >> 4) & 0xF
     }
 
-    pub fn set_sun_light(&mut self, position: U16Vec3, value: u8) {
+    pub fn set_sky_light(&mut self, position: U16Vec3, value: u8) {
         let level = self.get_light_level_mut(position);
 
         *level = (*level & 0xF) | (value << 4);
@@ -244,7 +262,10 @@ impl Chunk {
                         max = max.max(y);
 
                         if y == (CHUNK_SIZE * SUBCHUNK_COUNT - 1) {
-                            self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                            self.set_block_unchecked(
+                                self.to_local(vec3(x as f32, y as f32, z as f32)),
+                                2,
+                            );
                         } else {
                             let value = generator.get([
                                 (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
@@ -254,9 +275,15 @@ impl Chunk {
                             ]);
 
                             if value <= 0.0 {
-                                self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 2);
+                                self.set_block_unchecked(
+                                    self.to_local(vec3(x as f32, y as f32, z as f32)),
+                                    2,
+                                );
                             } else {
-                                self.set_block_unchecked(vec3(x as f32, y as f32, z as f32), 1);
+                                self.set_block_unchecked(
+                                    self.to_local(vec3(x as f32, y as f32, z as f32)),
+                                    1,
+                                );
                             }
                         }
                     }

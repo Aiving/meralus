@@ -1,6 +1,8 @@
-use crate::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
-use glam::{IVec2, IVec3, Vec3};
 use std::collections::HashMap;
+
+use glam::{IVec2, IVec3, U16Vec3, Vec3};
+
+use crate::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
 
 pub struct ChunkManager {
     chunks: HashMap<IVec2, Chunk>,
@@ -64,6 +66,11 @@ impl ChunkManager {
         )
     }
 
+    pub fn to_chunk_local(&self, position: Vec3) -> Option<U16Vec3> {
+        self.get_chunk(&Self::to_local(position))
+            .map(|chunk| chunk.to_local(position))
+    }
+
     pub fn get_chunk(&self, position: &IVec2) -> Option<&Chunk> {
         self.chunks.get(position)
     }
@@ -78,16 +85,31 @@ impl ChunkManager {
         chunk.get_block(chunk.to_local(position))
     }
 
+    pub fn set_block(&mut self, position: Vec3, block: u8) {
+        if let Some(chunk) = self.get_chunk_mut(&Self::to_local(position)) {
+            chunk.set_block(chunk.to_local(position), block);
+        }
+    }
+
+    pub fn set_block_light(&mut self, position: Vec3, light_level: u8) {
+        if let Some(chunk) = self.get_chunk_mut(&Self::to_local(position)) {
+            chunk.set_block_light(chunk.to_local(position), light_level);
+        }
+    }
+
+    pub fn set_sky_light(&mut self, position: Vec3, light_level: u8) {
+        if let Some(chunk) = self.get_chunk_mut(&Self::to_local(position)) {
+            chunk.set_sky_light(chunk.to_local(position), light_level);
+        }
+    }
+
     pub fn contains_block(&self, position: Vec3) -> bool {
         self.get_chunk(&Self::to_local(position))
             .is_some_and(|chunk| chunk.check_for_block(position))
     }
 
-    pub fn contains_chunk(&self, position: Vec3) -> bool {
-        self.chunks.contains_key(&IVec2::new(
-            position.x.floor() as i32 >> 4,
-            position.z.floor() as i32 >> 4,
-        ))
+    pub fn contains_chunk(&self, origin: &IVec2) -> bool {
+        self.chunks.contains_key(origin)
     }
 
     pub fn get_block_light(&self, position: Vec3) -> u8 {
@@ -103,13 +125,13 @@ impl ChunkManager {
             })
     }
 
-    pub fn get_sun_light(&self, position: Vec3) -> u8 {
+    pub fn get_sky_light(&self, position: Vec3) -> u8 {
         self.get_chunk(&Self::to_local(position))
             .map_or(15, |chunk| {
                 let local_position = chunk.to_local(position);
 
                 if chunk.contains_local_position(local_position) {
-                    chunk.get_sun_light(local_position)
+                    chunk.get_sky_light(local_position)
                 } else {
                     15
                 }

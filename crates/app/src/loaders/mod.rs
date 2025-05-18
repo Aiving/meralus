@@ -5,6 +5,6 @@ mod texture;
 
 pub use self::{
     block::{Block, BlockManager},
-    block_model::{BakedBlockModel, BakedBlockModelLoader, BlockModelFace},
+    block_model::BakedBlockModelLoader,
     texture::{TextureAtlas, TextureLoader},
 };

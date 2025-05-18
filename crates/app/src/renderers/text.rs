@@ -1,5 +1,5 @@
-use super::Shader;
-use crate::{BLENDING, Point2D, Size2D, impl_vertex, loaders::TextureAtlas};
+use std::{borrow::Borrow, collections::HashMap};
+
 use fontdue::{
     Font, FontSettings,
     layout::{CoordinateSystem, GlyphRasterConfig, Layout, TextStyle},
@@ -17,7 +17,9 @@ use meralus_engine::{
     },
 };
 use meralus_shared::{Color, FromValue};
-use std::{borrow::Borrow, collections::HashMap};
+
+use super::Shader;
+use crate::{BLENDING, Point2D, Size2D, impl_vertex, loaders::TextureAtlas};
 
 pub const FONT: &[u8] = include_bytes!("../../resources/PixeloidSans.ttf");
 pub const FONT_BOLD: &[u8] = include_bytes!("../../resources/PixeloidSans-Bold.ttf");
@@ -63,8 +65,8 @@ impl TextDataVertex {
 struct TextShader;
 
 impl Shader for TextShader {
-    const VERTEX: &str = include_str!("../../resources/shaders/text.vs");
     const FRAGMENT: &str = include_str!("../../resources/shaders/text.fs");
+    const VERTEX: &str = include_str!("../../resources/shaders/text.vs");
 }
 
 pub struct FontInfo {
@@ -92,27 +94,24 @@ impl TextRenderer {
         display: &WindowDisplay,
         character_limit: usize,
     ) -> Result<Self, BufferCreationError> {
-        let character = VertexBuffer::new(
-            display,
-            &[
-                TextVertex {
-                    position: vec3(0.0, 1.0, 0.0),
-                    character: vec2(0.0, 0.0),
-                },
-                TextVertex {
-                    position: vec3(0.0, 0.0, 0.0),
-                    character: vec2(0.0, 1.0),
-                },
-                TextVertex {
-                    position: vec3(1.0, 1.0, 0.0),
-                    character: vec2(1.0, 0.0),
-                },
-                TextVertex {
-                    position: vec3(1.0, 0.0, 0.0),
-                    character: vec2(1.0, 1.0),
-                },
-            ],
-        )?;
+        let character = VertexBuffer::new(display, &[
+            TextVertex {
+                position: vec3(0.0, 1.0, 0.0),
+                character: vec2(0.0, 0.0),
+            },
+            TextVertex {
+                position: vec3(0.0, 0.0, 0.0),
+                character: vec2(0.0, 1.0),
+            },
+            TextVertex {
+                position: vec3(1.0, 1.0, 0.0),
+                character: vec2(1.0, 0.0),
+            },
+            TextVertex {
+                position: vec3(1.0, 0.0, 0.0),
+                character: vec2(1.0, 1.0),
+            },
+        ])?;
 
         let character_offset = VertexBuffer::dynamic(
             display,

@@ -7,48 +7,57 @@
     clippy::missing_panics_doc
 )]
 
+mod aabb;
 mod blocks;
+mod camera;
+mod clock;
 mod game;
+mod keyboard;
 mod loaders;
 mod mesh;
 mod player;
+mod raycast;
 mod renderers;
 mod transform;
 mod ui;
 mod util;
 
-pub use self::{
-    game::{BackedFace, Game, GameState},
-    loaders::{
-        BakedBlockModel, BakedBlockModelLoader, Block, BlockManager, BlockModelFace, TextureLoader,
-    },
-    player::PlayerController,
-    transform::Transform,
-    util::{
-        AsColor, CameraExt, get_movement_direction, get_rotation_directions, raycast, vertex_ao,
-    },
-};
+use std::{f32, fs, net::SocketAddrV4, ops::Not, time::Duration};
+
+use camera::Camera;
 use clap::Parser;
+use clock::Clock;
 use glam::{IVec2, Mat4, UVec2, Vec2, Vec3, vec3};
+use keyboard::KeyboardController;
 use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode};
 use meralus_engine::{
     ActiveEventLoop, Application, EventLoop, KeyCode, State, WindowDisplay,
     glium::{
         Blend, BlendingFunction, LinearBlendingFactor, Rect, Surface,
         pixel_buffer::PixelBuffer,
-        winit::{event::KeyEvent, event_loop::ControlFlow, keyboard::PhysicalKey},
+        winit::{event::MouseButton, event_loop::ControlFlow},
     },
 };
-use meralus_shared::{Color, Point2D, Rect2D, Size2D};
+use meralus_shared::{Color, Lerp, Point2D, Rect2D, Size2D};
 use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, SUBCHUNK_COUNT};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
-use std::{collections::HashSet, fs, net::SocketAddrV4, ops::Not};
 use ui::UiContext;
-use util::BufferExt;
+use util::{BufferExt, cube_outline};
+
+pub use self::{
+    aabb::Aabb,
+    game::Game,
+    loaders::{BakedBlockModelLoader, Block, BlockManager, TextureLoader},
+    player::PlayerController,
+    transform::Transform,
+    util::{AsColor, CameraExt, get_movement_direction, get_rotation_directions, vertex_ao},
+};
 
 const TEXT_COLOR: Color = Color::from_hsl(120.0, 0.5, 0.4);
 const BG_COLOR: Color = Color::from_hsl(120.0, 0.4, 0.75);
+const DAY_COLOR: Color = Color::from_hsl(220.0, 0.5, 0.75);
+const NIGHT_COLOR: Color = Color::from_hsl(220.0, 0.35, 0.25);
 const BLENDING: Blend = Blend {
     color: BlendingFunction::Addition {
         source: LinearBlendingFactor::SourceAlpha,
@@ -61,6 +70,14 @@ const BLENDING: Blend = Blend {
     constant_value: (0.0, 0.0, 0.0, 0.0),
 };
 
+fn get_sky_color((after_day, progress): (bool, f32)) -> Color {
+    if after_day {
+        DAY_COLOR.lerp(&NIGHT_COLOR, progress)
+    } else {
+        NIGHT_COLOR.lerp(&DAY_COLOR, progress)
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -68,45 +85,6 @@ struct Args {
     host: Option<SocketAddrV4>,
     #[arg(short, long, group = "net")]
     nickname: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct Camera {
-    pub position: Vec3,
-    pub target: Vec3,
-    pub up: Vec3,
-    pub fov: f32,
-    pub aspect_ratio: f32,
-    pub z_near: f32,
-    pub z_far: f32,
-}
-
-impl Default for Camera {
-    fn default() -> Self {
-        Self {
-            position: vec3(0., -10., 0.),
-            target: vec3(0., 0., 0.),
-            aspect_ratio: 1024.0 / 768.0,
-            up: vec3(0., 0., 1.),
-            fov: 55.0_f32.to_radians(),
-            z_near: 0.01,
-            z_far: 10000.0,
-        }
-    }
-}
-
-impl Camera {
-    fn matrix(&self) -> Mat4 {
-        Mat4::perspective_rh_gl(self.fov, self.aspect_ratio, self.z_near, self.z_far)
-            * Mat4::look_at_rh(self.position, self.target, self.up)
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct KeyboardController {
-    pressed: HashSet<KeyCode>,
-    pressed_once: HashSet<KeyCode>,
-    released: HashSet<KeyCode>,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -118,6 +96,10 @@ struct Debugging {
     chunk_borders: Vec<Line>,
     vertices: usize,
     draw_calls: usize,
+}
+
+enum Action {
+    UpdateChunkMesh(IVec2),
 }
 
 struct GameLoop {
@@ -132,88 +114,63 @@ struct GameLoop {
     text_renderer: TextRenderer,
     voxel_renderer: VoxelRenderer,
     shape_renderer: ShapeRenderer,
+    ticks: usize,
+    tick_sum: usize,
+    accel: Duration,
+    clock: Clock,
+    action_queue: Vec<Action>,
+    pressed_mouse_button: Option<MouseButton>,
 }
 
-impl KeyboardController {
-    pub fn is_key_pressed(&self, key: KeyCode) -> bool {
-        self.pressed.contains(&key)
-    }
+impl GameLoop {
+    fn destroy_looking_at(&mut self) {
+        if let Some(looking_at) = self.player.looking_at {
+            let local = self.game.chunk_manager().to_chunk_local(looking_at);
 
-    pub fn is_key_pressed_once(&self, key: KeyCode) -> bool {
-        self.pressed_once.contains(&key)
-    }
+            if let Some(local) = local {
+                self.game.chunk_manager_mut().set_block(looking_at, 0);
 
-    pub fn is_key_released(&self, key: KeyCode) -> bool {
-        self.released.contains(&key)
-    }
+                if local.y >= 255 {
+                    self.game.chunk_manager_mut().set_sky_light(looking_at, 15);
+                }
 
-    pub fn clear(&mut self) {
-        self.pressed_once.clear();
-        self.released.clear();
-    }
+                self.game.update_block_sky_light(looking_at);
 
-    pub fn handle_keyboard_input(&mut self, event: &KeyEvent) {
-        if let PhysicalKey::Code(code) = event.physical_key {
-            if event.state.is_pressed() {
-                if !event.repeat {
-                    self.pressed_once.insert(code);
+                let chunk = ChunkManager::to_local(looking_at);
 
-                    if self.pressed.contains(&code) {
-                        self.pressed.remove(&code);
+                if local.x == 0 {
+                    let chunk = chunk - IVec2::X;
+
+                    if self.game.chunk_manager().contains_chunk(&chunk) {
+                        self.action_queue.push(Action::UpdateChunkMesh(chunk));
+                    }
+                } else if local.x == (CHUNK_SIZE as u16 - 1) {
+                    let chunk = chunk + IVec2::X;
+
+                    if self.game.chunk_manager().contains_chunk(&chunk) {
+                        self.action_queue.push(Action::UpdateChunkMesh(chunk));
                     }
                 }
 
-                self.pressed.insert(code);
-            } else {
-                self.pressed.remove(&code);
-                self.released.insert(code);
+                if local.z == 0 {
+                    let chunk = chunk - IVec2::Y;
+
+                    if self.game.chunk_manager().contains_chunk(&chunk) {
+                        self.action_queue.push(Action::UpdateChunkMesh(chunk));
+                    }
+                } else if local.z == (CHUNK_SIZE as u16 - 1) {
+                    let chunk = chunk + IVec2::Y;
+
+                    if self.game.chunk_manager().contains_chunk(&chunk) {
+                        self.action_queue.push(Action::UpdateChunkMesh(chunk));
+                    }
+                }
+
+                self.action_queue.push(Action::UpdateChunkMesh(chunk));
+                self.player.update_looking_at(&self.game);
             }
         }
     }
-}
-
-fn chunk_borders(origin: IVec2) -> [Line; 12] {
-    let origin = origin.as_vec2() * CHUNK_SIZE as f32;
-    let chunk_size = CHUNK_SIZE as f32;
-    let chunk_height = CHUNK_SIZE as f32 * SUBCHUNK_COUNT as f32;
-
-    [
-        [[0.0, 0.0, 0.0], [0.0, chunk_height, 0.0]],
-        [[chunk_size, 0.0, 0.0], [chunk_size, chunk_height, 0.0]],
-        [[0.0, 0.0, chunk_size], [0.0, chunk_height, chunk_size]],
-        [
-            [chunk_size, 0.0, chunk_size],
-            [chunk_size, chunk_height, chunk_size],
-        ],
-        [[0.0, 0.0, 0.0], [chunk_size, 0.0, 0.0]],
-        [[0.0, 0.0, 0.0], [0.0, 0.0, chunk_size]],
-        [[chunk_size, 0.0, 0.0], [chunk_size, 0.0, chunk_size]],
-        [[0.0, 0.0, chunk_size], [chunk_size, 0.0, chunk_size]],
-        [[0.0, chunk_height, 0.0], [chunk_size, chunk_height, 0.0]],
-        [[0.0, chunk_height, 0.0], [0.0, chunk_height, chunk_size]],
-        [
-            [chunk_size, chunk_height, 0.0],
-            [chunk_size, chunk_height, chunk_size],
-        ],
-        [
-            [0.0, chunk_height, chunk_size],
-            [chunk_size, chunk_height, chunk_size],
-        ],
-    ]
-    .map(|[start, end]| {
-        Line::new(
-            Vec3::new(origin.x, 0.0, origin.y) + Vec3::from_array(start),
-            Vec3::new(origin.x, 0.0, origin.y) + Vec3::from_array(end),
-            Color::BLUE,
-        )
-    })
-}
-
-const DAY_COLOR: Color = Color::from_hsl(220.0, 0.5, 0.75);
-const NIGHT_COLOR: Color = Color::from_hsl(220.0, 0.35, 0.25);
-
-const fn get_sky_color(night: bool) -> &'static Color {
-    if night { &NIGHT_COLOR } else { &DAY_COLOR }
 }
 
 impl State for GameLoop {
@@ -230,7 +187,7 @@ impl State for GameLoop {
         println!(
             "[{:18}] Generated {} chunks",
             "INFO/WorldGen".bright_green(),
-            game.chunk_manager.len().bright_blue().bold(),
+            game.chunk_manager().len().bright_blue().bold(),
         );
 
         let world_mesh = game.compute_world_mesh();
@@ -279,10 +236,17 @@ impl State for GameLoop {
                 overlay: false,
                 wireframe: false,
                 draw_borders: false,
-                chunk_borders: game.chunk_manager.chunks().fold(
+                chunk_borders: game.chunk_manager().chunks().fold(
                     Vec::new(),
                     |mut lines, Chunk { origin, .. }| {
-                        lines.extend(chunk_borders(*origin));
+                        let origin = origin.as_vec2() * CHUNK_SIZE as f32;
+                        let chunk_size = CHUNK_SIZE as f32;
+                        let chunk_height = CHUNK_SIZE as f32 * SUBCHUNK_COUNT as f32;
+
+                        lines.extend(cube_outline(
+                            vec3(origin.x, 0.0, origin.y),
+                            vec3(chunk_size, chunk_height, chunk_size),
+                        ));
 
                         lines
                     },
@@ -295,10 +259,16 @@ impl State for GameLoop {
                 position: player.position,
                 up: player.up,
                 target: player.position + player.front,
-                ..Default::default()
+                ..Camera::default()
             },
+            ticks: 0,
+            tick_sum: 0,
+            accel: Duration::ZERO,
             player,
             player_controllable: true,
+            clock: Clock::default(),
+            action_queue: Vec::new(),
+            pressed_mouse_button: None,
         }
     }
 
@@ -325,9 +295,38 @@ impl State for GameLoop {
         self.keyboard.handle_keyboard_input(&event);
     }
 
+    fn handle_mouse_button(&mut self, _: &ActiveEventLoop, button: MouseButton, is_pressed: bool) {
+        if is_pressed {
+            self.pressed_mouse_button = Some(button);
+        } else if self.pressed_mouse_button == Some(button) {
+            self.pressed_mouse_button.take();
+        }
+    }
+
     fn handle_mouse_motion(&mut self, _: &ActiveEventLoop, mouse_delta: Vec2) {
         if self.player_controllable {
-            self.player.handle_mouse(&mut None, &self.game, mouse_delta);
+            self.player.handle_mouse(&self.game, mouse_delta);
+        }
+    }
+
+    fn tick(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, _: Duration) {
+        self.tick_sum += 1;
+
+        self.clock.tick();
+
+        let progress = self.clock.get_progress();
+
+        self.voxel_renderer.set_sun_position(if progress > 0.5 {
+            1.0 - progress
+        } else {
+            progress
+        });
+
+        if self
+            .pressed_mouse_button
+            .is_some_and(|button| button == MouseButton::Left)
+        {
+            self.destroy_looking_at();
         }
     }
 
@@ -342,12 +341,21 @@ impl State for GameLoop {
         }
     }
 
-    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
+    #[allow(clippy::too_many_lines)]
+    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: Duration) {
+        self.accel += delta;
+
+        if self.accel >= Duration::from_secs(1) {
+            self.ticks = self.tick_sum;
+            self.accel = Duration::ZERO;
+            self.tick_sum = 0;
+        }
+
         if self.keyboard.is_key_pressed_once(KeyCode::Escape) {
             event_loop.exit();
         }
 
-        self.animation_player.advance(delta);
+        self.animation_player.advance(delta.as_secs_f32());
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyR) {
             self.animation_player.enable();
@@ -381,6 +389,16 @@ impl State for GameLoop {
             }
 
             self.animation_player.play("overlay-width");
+        }
+
+        while let Some(action) = self.action_queue.pop() {
+            match action {
+                Action::UpdateChunkMesh(origin) => {
+                    if let Some(chunk) = self.game.compute_chunk_mesh_at(&origin) {
+                        self.voxel_renderer.set_chunk(display, chunk);
+                    }
+                }
+            }
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyB) {
@@ -461,7 +479,7 @@ impl State for GameLoop {
         let (width, height) = display.get_framebuffer_dimensions();
         let mut frame = display.draw();
 
-        let [r, g, b] = get_sky_color(self.debugging.night).to_linear();
+        let [r, g, b] = get_sky_color(self.clock.get_visual_progress()).to_linear();
 
         frame.clear_color_and_depth((r, g, b, 1.0), 1.0);
 
@@ -489,6 +507,18 @@ impl State for GameLoop {
             self.shape_renderer.set_default_matrix();
         }
 
+        if let Some(position) = self.player.looking_at {
+            self.shape_renderer.set_matrix(self.camera.matrix());
+            self.shape_renderer.draw_lines(
+                &mut frame,
+                display,
+                &cube_outline(position, Vec3::ONE),
+                &mut self.debugging.draw_calls,
+                &mut self.debugging.vertices,
+            );
+            self.shape_renderer.set_default_matrix();
+        }
+
         let animation_progress: f32 = self.animation_player.get_value("loading-screen").unwrap();
 
         let mut context = UiContext::new(self, display, &mut frame);
@@ -496,8 +526,32 @@ impl State for GameLoop {
         {
             let chunk = ChunkManager::to_local(context.game_loop.player.position);
 
+            let (hours, minutes) = {
+                let time = context.game_loop.clock.time().as_secs();
+                let seconds = time % 60;
+                let minutes = (time - seconds) / 60 % 60;
+                let hours = (time - seconds - minutes * 60) / 60 / 60;
+
+                (hours, minutes)
+            };
+
+            let version = display.get_opengl_version();
+
             let text = format!(
-                "Free GPU memory: {}\nWindow size: {width}x{height}\nPlayer position: {:.2}\nChunk: {} {}\nFPS: {:.0} ({:.2}ms)\nDraw calls: {}\nRendered vertices: {}\nAnimation player:",
+                "OpenGL {}.{}
+Free GPU memory: {}
+Window size: {width}x{height}
+Player position: {:.2}
+Chunk: {} {}
+Game Time: {hours:02}:{minutes:02}
+FPS: {:.0} ({:.2}ms)
+TPS: {}
+Looking at {}
+Draw calls: {}
+Rendered vertices: {}
+Animation player:",
+                version.1,
+                version.2,
                 display
                     .get_free_video_memory()
                     .map_or_else(|| String::from("unknown"), util::format_bytes),
@@ -506,6 +560,18 @@ impl State for GameLoop {
                 chunk.y,
                 1.0 / delta,
                 delta * 1000.0,
+                context.game_loop.ticks,
+                context
+                    .game_loop
+                    .player
+                    .looking_at
+                    .and_then(|position| context
+                        .game_loop
+                        .game
+                        .chunk_manager()
+                        .get_block(position)
+                        .map(|b| if b == 1 { "dirt" } else { "grass" }))
+                    .unwrap_or("nothing"),
                 context.game_loop.debugging.draw_calls,
                 context.game_loop.debugging.vertices,
             );
@@ -666,8 +732,8 @@ async fn main() {
 
     //     sink.send(IncomingPacket::GetPlayers).await.unwrap();
 
-    //     if let Some(Ok(OutgoingPacket::PlayersList { players })) = stream.next().await {
-    //         println!("{players:#?}");
+    //     if let Some(Ok(OutgoingPacket::PlayersList { players })) =
+    // stream.next().await {         println!("{players:#?}");
     //     }
     // }
 

@@ -1,11 +1,12 @@
-use crate::{Camera, Game, KeyboardController};
-use glam::{IVec3, Vec2, Vec3, vec2, vec3};
+use glam::{DVec3, Vec2, Vec3, vec2, vec3};
 use meralus_engine::{
     KeyCode,
     glium::{buffer::ReadError, pixel_buffer::PixelBuffer},
 };
 use meralus_shared::Color;
 use meralus_world::Face;
+
+use crate::{Camera, KeyboardController, renderers::Line};
 
 const AMBIENT_OCCLUSION_VALUES: [f32; 4] = [0.4, 0.55, 0.75, 1.0];
 
@@ -126,145 +127,77 @@ impl CameraExt for Camera {
     }
 }
 
-pub fn raycast(game: &Game, origin: IVec3, direction: Vec3, mut radius: f32) -> Option<Vec3> {
-    // From "A Fast Voxel Traversal Algorithm for Ray Tracing"
-    // by John Amanatides and Andrew Woo, 1987
-    // <http://www.cse.yorku.ca/~amana/research/grid.pdf>
-    // <http://citeseer.ist.psu.edu/viewdoc/summary?doi=10.1.1.42.3443>
-    // Extensions to the described algorithm:
-    //   • Imposed a distance limit.
-    //   • The face passed through to reach the current cube is provided to
-    //     the callback.
-
-    // The foundation of this algorithm is a parameterized representation of
-    // the provided ray,
-    //                    origin + t * direction,
-    // except that t is not actually stored; rather, at any given point in the
-    // traversal, we keep track of the *greater* t values which we would have
-    // if we took a step sufficient to cross a cube boundary along that axis
-    // (i.e. change the integer part of the coordinate) in the variables
-    // t_max_x, t_max_y, and t_max_z.
-
-    // Cube containing origin point.
-    let Vec3 {
-        mut x,
-        mut y,
-        mut z,
-    } = origin.as_vec3();
-    // Break out direction vector.
-    let Vec3 {
-        x: dx,
-        y: dy,
-        z: dz,
-    } = direction;
-    // Direction to increment x,y,z when stepping.
-    let [step_x, step_y, step_z] = [dx.signum(), dy.signum(), dz.signum()];
-    // See description above. The initial values depend on the fractional
-    // part of the origin.
-    let [mut t_max_x, mut t_max_y, mut t_max_z] =
-        [intbound(x, dx), intbound(y, dy), intbound(z, dz)];
-    // The change in t when taking a step (always positive).
-    let [t_delta_x, t_delta_y, t_delta_z] = [step_x / dx, step_y / dy, step_z / dz];
-    // Buffer for reporting faces to the callback.
-    let mut face = Vec3::ZERO;
-
-    // Avoids an infinite loop.
-    if dx == 0.0 && dy == 0.0 && dz == 0.0 {
-        return None;
-    }
-    //   throw new RangeError("Raycast in zero direction!");
-
-    // Rescale from units of 1 cube-edge to units of 'direction' so we can
-    // compare with 't'.
-    radius /= dz.mul_add(dz, dx.mul_add(dx, dy.powi(2))).sqrt();
-
-    let bounds = game.chunk_manager.surface_size().as_vec3();
-    let mut block = None;
-
-    while (if step_x > 0.0 { x < bounds.x } else { x >= 0.0 })
-        && (if step_y > 0.0 { y < bounds.y } else { y >= 0.0 })
-        && (if step_z > 0.0 { z < bounds.z } else { z >= 0.0 })
-    {
-        // Invoke the callback, unless we are not *yet* within the bounds of the
-        // world.
-        if (!(x < 0.0 || y < 0.0 || z < 0.0 || x >= bounds.x || y >= bounds.y || z >= bounds.z))
-            && (game.chunk_manager.contains_block(vec3(x, y, z)))
-        {
-            block = Some(vec3(x, y, z));
-
-            break;
-        }
-
-        // t_max_x stores the t-value at which we cross a cube boundary along the
-        // X axis, and similarly for Y and Z. Therefore, choosing the least tMax
-        // chooses the closest cube boundary. Only the first case of the four
-        // has been commented in detail.
-        if t_max_x < t_max_y {
-            if t_max_x < t_max_z {
-                if t_max_x > radius {
-                    break;
-                }
-
-                // Update which cube we are now in.
-                x += step_x;
-                // Adjust t_max_x to the next X-oriented boundary crossing.
-                t_max_x += t_delta_x;
-
-                // Record the normal vector of the cube face we entered.
-                face.x = -step_x;
-                face.y = 0.0;
-                face.z = 0.0;
-            } else {
-                if t_max_z > radius {
-                    break;
-                }
-
-                z += step_z;
-                t_max_z += t_delta_z;
-
-                face.x = 0.0;
-                face.y = 0.0;
-                face.z = -step_z;
-            }
-        } else if t_max_y < t_max_z {
-            if t_max_y > radius {
-                break;
-            }
-
-            y += step_y;
-            t_max_y += t_delta_y;
-
-            face.x = 0.0;
-            face.y = -step_y;
-            face.z = 0.0;
-        } else {
-            // Identical to the second case, repeated for simplicity in
-            // the conditionals.
-            if t_max_z > radius {
-                break;
-            }
-
-            z += step_z;
-            t_max_z += t_delta_z;
-
-            face.x = 0.0;
-            face.y = 0.0;
-            face.z = -step_z;
-        }
-    }
-
-    block
+pub trait VecExt<T>: Sized {
+    fn get_intermediate_with_x_value(&self, vec: Self, x: T) -> Option<Self>;
+    fn get_intermediate_with_y_value(&self, vec: Self, y: T) -> Option<Self>;
+    fn get_intermediate_with_z_value(&self, vec: Self, z: T) -> Option<Self>;
 }
 
-fn intbound(s: f32, ds: f32) -> f32 {
-    // Find the smallest positive t such that s+t*ds is an integer.
-    if ds < 0.0 {
-        intbound(-s, -ds)
-    } else {
-        let s = s % 1.0;
+impl VecExt<f64> for DVec3 {
+    fn get_intermediate_with_x_value(&self, vec: Self, x: f64) -> Option<Self> {
+        let d0 = vec.x - self.x;
+        let d1 = vec.y - self.y;
+        let d2 = vec.z - self.z;
 
-        // problem is now s+t*ds = 1
-        (1.0 - s) / ds
+        if d0 * d0 < 0.0000001 {
+            None
+        } else {
+            let d3 = (x - self.x) / d0;
+
+            if (0.0..=1.0).contains(&d3) {
+                Some(Self::new(
+                    d0.mul_add(d3, self.x),
+                    d1.mul_add(d3, self.y),
+                    d2.mul_add(d3, self.z),
+                ))
+            } else {
+                None
+            }
+        }
+    }
+
+    fn get_intermediate_with_y_value(&self, vec: Self, y: f64) -> Option<Self> {
+        let d0 = vec.x - self.x;
+        let d1 = vec.y - self.y;
+        let d2 = vec.z - self.z;
+
+        if d1 * d1 < 1.0000000116860974E-7 {
+            None
+        } else {
+            let d3 = (y - self.y) / d1;
+
+            if (0.0..=1.0).contains(&d3) {
+                Some(Self::new(
+                    d0.mul_add(d3, self.x),
+                    d1.mul_add(d3, self.y),
+                    d2.mul_add(d3, self.z),
+                ))
+            } else {
+                None
+            }
+        }
+    }
+
+    fn get_intermediate_with_z_value(&self, vec: Self, z: f64) -> Option<Self> {
+        let d0 = vec.x - self.x;
+        let d1 = vec.y - self.y;
+        let d2 = vec.z - self.z;
+
+        if d2 * d2 < 1.0000000116860974E-7 {
+            None
+        } else {
+            let d3 = (z - self.x) / d2;
+
+            if (0.0..=1.0).contains(&d3) {
+                Some(Self::new(
+                    d0.mul_add(d3, self.x),
+                    d1.mul_add(d3, self.y),
+                    d2.mul_add(d3, self.z),
+                ))
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -282,4 +215,28 @@ pub fn format_bytes(bytes: usize) -> String {
     }
 
     format!("{value:.2}GB")
+}
+
+pub fn cube_outline(origin: Vec3, size: Vec3) -> [Line; 12] {
+    [
+        [[0.0, 0.0, 0.0], [0.0, size.y, 0.0]],
+        [[size.x, 0.0, 0.0], [size.x, size.y, 0.0]],
+        [[0.0, 0.0, size.x], [0.0, size.y, size.z]],
+        [[size.x, 0.0, size.z], [size.x, size.y, size.z]],
+        [[0.0, 0.0, 0.0], [size.x, 0.0, 0.0]],
+        [[0.0, 0.0, 0.0], [0.0, 0.0, size.z]],
+        [[size.x, 0.0, 0.0], [size.x, 0.0, size.z]],
+        [[0.0, 0.0, size.z], [size.x, 0.0, size.z]],
+        [[0.0, size.y, 0.0], [size.x, size.y, 0.0]],
+        [[0.0, size.y, 0.0], [0.0, size.y, size.z]],
+        [[size.x, size.y, 0.0], [size.x, size.y, size.z]],
+        [[0.0, size.y, size.z], [size.x, size.y, size.z]],
+    ]
+    .map(|[start, end]| {
+        Line::new(
+            origin + Vec3::from_array(start),
+            origin + Vec3::from_array(end),
+            Color::BLUE,
+        )
+    })
 }

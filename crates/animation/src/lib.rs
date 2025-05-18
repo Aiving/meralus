@@ -2,14 +2,15 @@ mod curves;
 mod player;
 mod value;
 
+use std::time::Duration;
+
+use meralus_shared::Lerp;
+
 pub use self::{
     curves::{Curve, ICurve},
     player::AnimationPlayer,
     value::TweenValue,
 };
-
-use meralus_shared::Lerp;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RepeatMode {

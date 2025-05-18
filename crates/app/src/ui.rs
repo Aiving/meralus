@@ -1,9 +1,10 @@
-use crate::{GameLoop, renderers::Rectangle};
 use meralus_engine::{
     WindowDisplay,
     glium::{Frame, Rect},
 };
 use meralus_shared::{Color, Point2D, Rect2D, Size2D};
+
+use crate::{GameLoop, renderers::Rectangle};
 
 struct Text {
     position: Point2D,

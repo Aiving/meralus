@@ -1,7 +1,9 @@
-use super::{InStream, IncomingPacket, OutSink, OutgoingPacket, wrap_stream};
-use futures::{SinkExt, StreamExt};
 use std::io;
+
+use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
+
+use super::{InStream, IncomingPacket, OutSink, OutgoingPacket, wrap_stream};
 
 pub struct ServerConnection(InStream<IncomingPacket>, OutSink<OutgoingPacket>);
 

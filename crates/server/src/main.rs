@@ -1,5 +1,6 @@
-use meralus_shared::{IncomingPacket, OutgoingPacket, Player, ServerConnection};
 use std::{error::Error, sync::Arc};
+
+use meralus_shared::{IncomingPacket, OutgoingPacket, Player, ServerConnection};
 use tokio::{net::TcpListener, sync::RwLock};
 
 #[tokio::main]

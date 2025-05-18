@@ -1,5 +1,6 @@
-use crate::AsValue;
 use glam::{Vec3, Vec4};
+
+use crate::AsValue;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -331,14 +332,14 @@ const COLOR_TO_LINEAR: [f32; 256] = [
 ];
 
 impl Color {
-    pub const RED: Self = Self([255, 0, 0, 255]);
-    pub const GREEN: Self = Self([0, 255, 0, 255]);
-    pub const BLUE: Self = Self([0, 0, 255, 255]);
-    pub const YELLOW: Self = Self([255, 255, 0, 255]);
-    pub const BROWN: Self = Self([165, 42, 42, 255]);
-    pub const PURPLE: Self = Self([128, 0, 128, 255]);
-    pub const WHITE: Self = Self([255, 255, 255, 255]);
     pub const BLACK: Self = Self([0, 0, 0, 255]);
+    pub const BLUE: Self = Self([0, 0, 255, 255]);
+    pub const BROWN: Self = Self([165, 42, 42, 255]);
+    pub const GREEN: Self = Self([0, 255, 0, 255]);
+    pub const PURPLE: Self = Self([128, 0, 128, 255]);
+    pub const RED: Self = Self([255, 0, 0, 255]);
+    pub const WHITE: Self = Self([255, 255, 255, 255]);
+    pub const YELLOW: Self = Self([255, 255, 0, 255]);
 
     pub const fn get_red(&self) -> u8 {
         self.0[0]

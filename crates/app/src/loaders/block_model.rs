@@ -1,10 +1,12 @@
-use super::{block::BlockManager, texture::TextureLoader};
-use crate::Game;
+use std::path::Path;
+
 use glam::{Vec2, Vec3};
 use meralus_shared::Color;
 use meralus_world::{Face, Faces};
 use owo_colors::OwoColorize;
-use std::path::Path;
+
+use super::{block::BlockManager, texture::TextureLoader};
+use crate::Game;
 
 #[derive(Debug)]
 pub struct BlockModelFace {
@@ -20,7 +22,7 @@ pub struct BlockModelFace {
 impl BlockModelFace {
     pub fn culled(&self, game: &Game, position: Vec3) -> bool {
         self.cull_face.is_some_and(|cull_face| {
-            game.chunk_manager
+            game.chunk_manager()
                 .contains_block(position + cull_face.as_normal().as_vec3())
         })
     }

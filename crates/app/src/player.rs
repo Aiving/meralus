@@ -1,9 +1,12 @@
-use crate::{
-    Camera, Game, KeyboardController, game::Aabb, get_movement_direction, get_rotation_directions,
-    raycast,
-};
-use glam::{FloatExt, Vec2, Vec3, vec3};
+use std::f32;
+
+use glam::{DVec3, FloatExt, Vec2, Vec3, dvec3, vec3};
 use meralus_engine::KeyCode;
+
+use crate::{
+    Aabb, Camera, Game, KeyboardController, get_movement_direction, get_rotation_directions,
+    raycast::HitType,
+};
 
 pub struct PlayerController {
     pub position: Vec3,
@@ -16,6 +19,7 @@ pub struct PlayerController {
     // END CAMERA
     pub velocity: Vec3,
     pub is_on_ground: bool,
+    pub looking_at: Option<Vec3>,
 }
 
 impl Default for PlayerController {
@@ -42,16 +46,26 @@ impl Default for PlayerController {
             up,
             velocity: Vec3::ZERO,
             is_on_ground: false,
+            looking_at: None,
         }
     }
 }
 
 impl PlayerController {
-    pub const MOVE_SPEED: f32 = 4.;
-    pub const MOUSE_SENSE: f32 = 0.05;
-    pub const LOOK_SPEED: f32 = 0.1;
-    pub const GRAVITY: f32 = 9.81 * 1.5;
     pub const AFFECTED_BY_PHYSICS: bool = false;
+    pub const GRAVITY: f32 = 9.81 * 1.5;
+    pub const LOOK_SPEED: f32 = 0.1;
+    pub const MOUSE_SENSE: f32 = 0.05;
+    pub const MOVE_SPEED: f32 = 4.;
+
+    pub fn get_vector_for_rotation(&self) -> DVec3 {
+        let f = (self.yaw - f32::consts::PI).cos();
+        let f1 = (self.yaw - f32::consts::PI).sin();
+        let f2 = -(self.pitch).cos();
+        let f3 = (self.pitch).sin();
+
+        DVec3::new(f64::from(f1 * f2), f64::from(f3), f64::from(f * f2))
+    }
 
     pub fn handle_physics(
         &mut self,
@@ -86,16 +100,6 @@ impl PlayerController {
             self.velocity.y = 0.0;
         }
 
-        // if is_key_pressed(KeyCode::Space)
-        // /* && self.is_on_ground(game) */
-        // {
-        //     if is_key_down(KeyCode::LeftShift) {
-        //         self.velocity.y -= 5.0;
-        //     } else {
-        //         self.velocity.y = 5.0;
-        //     }
-        // }
-
         if keyboard.is_key_pressed(KeyCode::Space) && self.is_on_ground && Self::AFFECTED_BY_PHYSICS
         {
             self.velocity.y = 5.0;
@@ -110,8 +114,20 @@ impl PlayerController {
         self.move_and_collide(game, delta);
     }
 
+    pub fn update_looking_at(&mut self, game: &Game) {
+        let block_reach_distance = 20.0f32;
+
+        let origin = self.position;
+        let target = origin + (self.front * block_reach_distance);
+
+        self.looking_at = game
+            .raycast(origin.into(), target.into(), true)
+            .filter(|result| result.hit_type == HitType::Block)
+            .map(|result| result.position);
+    }
+
     pub fn move_and_collide(&mut self, game: &Game, delta: f32) {
-        let mut remaining_movement = self.velocity * delta;
+        let mut remaining_movement = self.velocity.as_dvec3() * f64::from(delta);
         let mut actual_movement = [0.0; 3];
 
         for axis in 0..3 {
@@ -119,13 +135,13 @@ impl PlayerController {
                 continue;
             }
 
-            let mut test_pos = self.position;
+            let mut test_pos = self.position.as_dvec3();
 
             test_pos[axis] += remaining_movement[axis];
 
             let test_aabb = Aabb::new(
-                test_pos - vec3(0.5, 2.0, 0.5),
-                test_pos + vec3(0.5, 0.0, 0.5),
+                test_pos - dvec3(0.5, 2.0, 0.5),
+                test_pos + dvec3(0.5, 0.0, 0.5),
             );
 
             if game.collides(test_aabb) {
@@ -137,15 +153,15 @@ impl PlayerController {
 
                 #[allow(clippy::while_float)]
                 while step > 0.001 {
-                    test_pos[axis] = direction.mul_add(step, self.position[axis]);
+                    test_pos[axis] = direction.mul_add(step, self.position[axis].into());
 
                     let test_aabb = Aabb::new(
-                        test_pos - vec3(0.5, 2.0, 0.5),
-                        test_pos + vec3(0.5, 0.0, 0.5),
+                        test_pos - dvec3(0.5, 2.0, 0.5),
+                        test_pos + dvec3(0.5, 0.0, 0.5),
                     );
 
                     if !game.collides(test_aabb) {
-                        self.position[axis] = test_pos[axis];
+                        self.position[axis] = test_pos[axis] as f32;
 
                         actual_movement[axis] += direction * step;
                         remaining_movement[axis] -= direction * step;
@@ -156,16 +172,18 @@ impl PlayerController {
                     step /= 2.0;
                 }
             } else {
-                self.position[axis] = test_pos[axis];
+                self.position[axis] = test_pos[axis] as f32;
                 self.is_on_ground = false;
 
                 actual_movement[axis] = remaining_movement[axis];
                 remaining_movement[axis] = 0.0;
             }
         }
+
+        self.update_looking_at(game);
     }
 
-    pub fn handle_mouse(&mut self, looking_at: &mut Option<Vec3>, game: &Game, mouse_delta: Vec2) {
+    pub fn handle_mouse(&mut self, game: &Game, mouse_delta: Vec2) {
         self.yaw += mouse_delta.x * Self::MOUSE_SENSE * Self::LOOK_SPEED;
         self.pitch += mouse_delta.y * Self::MOUSE_SENSE * -Self::LOOK_SPEED;
 
@@ -179,7 +197,7 @@ impl PlayerController {
         )
         .normalize();
 
-        *looking_at = raycast(game, self.position.floor().as_ivec3(), self.front, 30.0);
+        self.update_looking_at(game);
 
         self.right = self.front.cross(Vec3::Y).normalize();
         self.up = self.right.cross(self.front).normalize();

@@ -1,5 +1,5 @@
-use super::Shader;
-use crate::{BLENDING, mesh::Mesh};
+use std::collections::HashMap;
+
 use glam::{IVec2, Mat4};
 use meralus_engine::{
     Vertex, WindowDisplay,
@@ -11,18 +11,22 @@ use meralus_engine::{
         uniforms::Sampler,
     },
 };
+use meralus_world::Face;
 use owo_colors::OwoColorize;
+
+use super::Shader;
+use crate::{BLENDING, mesh::Mesh};
 
 struct VoxelShader;
 
 impl Shader for VoxelShader {
-    const VERTEX: &str = include_str!("../../resources/shaders/voxel.vs");
     const FRAGMENT: &str = include_str!("../../resources/shaders/voxel.fs");
+    const VERTEX: &str = include_str!("../../resources/shaders/voxel.vs");
 }
 
 pub struct VoxelRenderer {
     shader: Program,
-    draws: Vec<(IVec2, VertexBuffer<Vertex>, usize)>,
+    draws: HashMap<(IVec2, Face), (VertexBuffer<Vertex>, usize)>,
     vertices: usize,
     draw_calls: usize,
     sun_position: f32,
@@ -30,17 +34,19 @@ pub struct VoxelRenderer {
 
 impl VoxelRenderer {
     pub fn new(display: &WindowDisplay, world_mesh: Vec<[Mesh; 6]>) -> Self {
-        let mut draws = Vec::new();
+        let mut draws = HashMap::new();
         let mut vertices = 0;
         let mut draw_calls = 0;
 
         for meshes in world_mesh {
             for mesh in meshes {
-                draws.push((
-                    mesh.origin,
-                    VertexBuffer::new(display, &mesh.vertices).unwrap(),
-                    mesh.texture_id,
-                ));
+                draws.insert(
+                    (mesh.origin, mesh.face),
+                    (
+                        VertexBuffer::new(display, &mesh.vertices).unwrap(),
+                        mesh.texture_id,
+                    ),
+                );
 
                 vertices += mesh.vertices.len();
                 draw_calls += 1;
@@ -61,6 +67,18 @@ impl VoxelRenderer {
         }
     }
 
+    pub fn set_chunk(&mut self, display: &WindowDisplay, chunk: [Mesh; 6]) {
+        for mesh in chunk {
+            self.draws.insert(
+                (mesh.origin, mesh.face),
+                (
+                    VertexBuffer::new(display, &mesh.vertices).unwrap(),
+                    mesh.texture_id,
+                ),
+            );
+        }
+    }
+
     pub const fn get_debug_info(&self) -> (usize, usize) {
         (self.draw_calls, self.vertices)
     }
@@ -76,7 +94,7 @@ impl VoxelRenderer {
         atlas: Sampler<'_, Texture2d>,
         params: &DrawParameters,
     ) {
-        for (origin, vertex_buffer, _) in &self.draws {
+        for ((origin, _), (vertex_buffer, _)) in &self.draws {
             let uniforms = uniform! {
                 origin: origin.to_array(),
                 sun_position: [0.0, self.sun_position, 0.0],
@@ -104,25 +122,20 @@ impl VoxelRenderer {
         atlas: Sampler<'_, Texture2d>,
         wireframe: bool,
     ) {
-        self.render_with_params(
-            frame,
-            matrix,
-            atlas,
-            &DrawParameters {
-                depth: Depth {
-                    test: DepthTest::IfLessOrEqual,
-                    write: true,
-                    ..Depth::default()
-                },
-                backface_culling: BackfaceCullingMode::CullCounterClockwise,
-                polygon_mode: if wireframe {
-                    PolygonMode::Line
-                } else {
-                    PolygonMode::Fill
-                },
-                blend: BLENDING,
-                ..DrawParameters::default()
+        self.render_with_params(frame, matrix, atlas, &DrawParameters {
+            depth: Depth {
+                test: DepthTest::IfLessOrEqual,
+                write: true,
+                ..Depth::default()
             },
-        );
+            backface_culling: BackfaceCullingMode::CullCounterClockwise,
+            polygon_mode: if wireframe {
+                PolygonMode::Line
+            } else {
+                PolygonMode::Fill
+            },
+            blend: BLENDING,
+            ..DrawParameters::default()
+        });
     }
 }

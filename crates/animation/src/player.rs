@@ -1,6 +1,8 @@
-use crate::{Animation, TweenValue};
-use indexmap::IndexMap;
 use std::collections::HashSet;
+
+use indexmap::IndexMap;
+
+use crate::{Animation, TweenValue};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AnimationPlayer {

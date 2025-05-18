@@ -6,8 +6,7 @@
 
 mod color;
 mod lerp;
-#[cfg(feature = "network")]
-mod network;
+#[cfg(feature = "network")] mod network;
 
 #[cfg(feature = "network")]
 pub use self::network::{Client, IncomingPacket, OutgoingPacket, Player, ServerConnection};

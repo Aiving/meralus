@@ -1,12 +1,13 @@
+use std::fmt;
+
 use glam::{IVec3, U16Vec3, Vec2, Vec3, vec2, vec3};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum Face {
-    Top,
     Bottom,
+    Top,
     Left,
     Right,
     Front,
@@ -93,18 +94,6 @@ impl Face {
         Self::Front,
         Self::Back,
     ];
-
-    pub const VERTICES: [Vec3; 8] = [
-        vec3(0.0, 0.0, 1.0), // 0 LEFT  BOTTOM FRONT
-        vec3(1.0, 0.0, 1.0), // 1 RIGHT BOTTOM FRONT
-        vec3(0.0, 1.0, 1.0), // 2 LEFT  TOP    FRONT
-        vec3(1.0, 1.0, 1.0), // 3 RIGHT TOP    FRONT
-        vec3(0.0, 0.0, 0.0), // 4 LEFT  BOTTOM BACK
-        vec3(1.0, 0.0, 0.0), // 5 RIGHT BOTTOM BACK
-        vec3(0.0, 1.0, 0.0), // 6 LEFT  TOP    BACK
-        vec3(1.0, 1.0, 0.0), // 7 RIGHT TOP    BACK
-    ];
-
     pub const BOOL_VERTICES: [[bool; 3]; 8] = [
         [false, false, true],  // 0 LEFT  BOTTOM FRONT
         [true, false, true],   // 1 RIGHT BOTTOM FRONT
@@ -115,7 +104,6 @@ impl Face {
         [false, true, false],  // 6 LEFT  TOP    BACK
         [true, true, false],   // 7 RIGHT TOP    BACK
     ];
-
     const NEIGHBOURS: [[i32; 2]; 8] = [
         [-1, -1], // LEFT BOTTOM
         [-1, 0],  // LEFT
@@ -125,6 +113,16 @@ impl Face {
         [1, -1],  // RIGHT BOTTOM
         [1, 0],   // RIGHT
         [1, 1],   // RIGHT TOP
+    ];
+    pub const VERTICES: [Vec3; 8] = [
+        vec3(0.0, 0.0, 1.0), // 0 LEFT  BOTTOM FRONT
+        vec3(1.0, 0.0, 1.0), // 1 RIGHT BOTTOM FRONT
+        vec3(0.0, 1.0, 1.0), // 2 LEFT  TOP    FRONT
+        vec3(1.0, 1.0, 1.0), // 3 RIGHT TOP    FRONT
+        vec3(0.0, 0.0, 0.0), // 4 LEFT  BOTTOM BACK
+        vec3(1.0, 0.0, 0.0), // 5 RIGHT BOTTOM BACK
+        vec3(0.0, 1.0, 0.0), // 6 LEFT  TOP    BACK
+        vec3(1.0, 1.0, 0.0), // 7 RIGHT TOP    BACK
     ];
 
     pub const fn get_light_level(self) -> f32 {
@@ -164,14 +162,7 @@ impl Face {
     }
 
     pub const fn normal_index(self) -> usize {
-        match self {
-            Self::Left => 0,
-            Self::Right => 1,
-            Self::Bottom => 2,
-            Self::Top => 3,
-            Self::Front => 4,
-            Self::Back => 5,
-        }
+        self as usize
     }
 
     #[must_use]

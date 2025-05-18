@@ -1,12 +1,15 @@
+use std::{borrow::Borrow, collections::HashMap, hash::Hash, path::Path};
+
 use glam::{UVec2, Vec2, uvec2};
 use image::RgbaImage;
-use meralus_engine::WindowDisplay;
-use meralus_engine::glium::texture::{MipmapsOption, RawImage2d};
-use meralus_engine::glium::{Rect, Texture2d};
+use meralus_engine::{
+    WindowDisplay,
+    glium::{
+        Rect, Texture2d,
+        texture::{MipmapsOption, RawImage2d},
+    },
+};
 use owo_colors::OwoColorize;
-use std::borrow::Borrow;
-use std::hash::Hash;
-use std::{collections::HashMap, path::Path};
 
 const fn alpha_blend(mut one: u32, mut two: u32) -> (u8, u8, u8, u8) {
     let mut i = (one as i32 & -16777216) as u32 >> 24 & 255;

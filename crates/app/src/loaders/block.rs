@@ -1,7 +1,8 @@
-use super::texture::TextureLoader;
+use std::{fs, path::Path};
+
 use meralus_world::{BlockModel, Property, TextureId};
-use std::fs;
-use std::path::Path;
+
+use super::texture::TextureLoader;
 
 pub trait Block {
     fn get_properties(&self) -> Vec<Property>;
