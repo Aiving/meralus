@@ -119,7 +119,6 @@ struct GameLoop {
     accel: Duration,
     clock: Clock,
     action_queue: Vec<Action>,
-    pressed_mouse_button: Option<MouseButton>,
 }
 
 impl GameLoop {
@@ -268,7 +267,6 @@ impl State for GameLoop {
             player_controllable: true,
             clock: Clock::default(),
             action_queue: Vec::new(),
-            pressed_mouse_button: None,
         }
     }
 
@@ -296,10 +294,8 @@ impl State for GameLoop {
     }
 
     fn handle_mouse_button(&mut self, _: &ActiveEventLoop, button: MouseButton, is_pressed: bool) {
-        if is_pressed {
-            self.pressed_mouse_button = Some(button);
-        } else if self.pressed_mouse_button == Some(button) {
-            self.pressed_mouse_button.take();
+        if button == MouseButton::Left && is_pressed {
+            self.destroy_looking_at();
         }
     }
 
@@ -321,13 +317,6 @@ impl State for GameLoop {
         } else {
             progress
         });
-
-        if self
-            .pressed_mouse_button
-            .is_some_and(|button| button == MouseButton::Left)
-        {
-            self.destroy_looking_at();
-        }
     }
 
     fn fixed_update(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, delta: f32) {
