@@ -15,6 +15,7 @@ Note: animation player is disabled by default, so you need to press `R` to enabl
 - Walking: `WASD`
 - Jumping: `Space`
 - Running: `Shift + W` (does not work with `S`!)
+- Toggle mouse capture: `TAB`
 - \[Debugging\] Restart all animations (including finished): `R`
 - \[Debugging\] Toggle debug overlay: `O`
 - \[Debugging\] Toggle wireframes: `T`
@@ -33,7 +34,7 @@ Note: animation player is disabled by default, so you need to press `R` to enabl
 
 ## MSRV
 
-The Minimum Supported Rust Version is currently **1.85.1**.
+The Minimum Supported Rust Version is currently **nightly**.
 
 ## License
 
