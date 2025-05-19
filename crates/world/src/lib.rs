@@ -11,6 +11,8 @@ mod block;
 mod chunk;
 mod chunk_manager;
 
+pub use serde_json::Error as JsonError;
+
 pub use self::{
     block::{
         Axis, BlockCondition, BlockElement, BlockFace, BlockModel, BlockState, BlockStates,
@@ -20,5 +22,3 @@ pub use self::{
     chunk::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT, SubChunk},
     chunk_manager::ChunkManager,
 };
-
-pub use serde_json::Error as JsonError;

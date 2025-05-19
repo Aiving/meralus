@@ -91,6 +91,11 @@ impl BakedBlockModelLoader {
         self.models.get(value)
     }
 
+    /// # Errors
+    ///
+    /// An error will be returned if the passed path does not contain a filename
+    /// or an error occurred while loading the block model (see
+    /// [`BlockManager::load`]).
     pub fn load<P: AsRef<Path>, R: AsRef<Path>>(
         &mut self,
         textures: &mut TextureLoader,

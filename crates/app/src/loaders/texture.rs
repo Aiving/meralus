@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, hash::Hash, path::Path};
+use std::{borrow::Borrow, collections::HashMap, hash::Hash, io, path::Path};
 
 use glam::{UVec2, Vec2, uvec2};
 use image::RgbaImage;
@@ -11,9 +11,8 @@ use meralus_engine::{
 };
 use owo_colors::OwoColorize;
 
-use crate::loaders::LoadingError;
-
 use super::LoadingResult;
+use crate::loaders::LoadingError;
 
 const fn alpha_blend(mut one: u32, mut two: u32) -> (u8, u8, u8, u8) {
     let mut i = (one as i32 & -16777216) as u32 >> 24 & 255;
@@ -233,7 +232,7 @@ pub struct TextureLoader {
 #[derive(Debug)]
 pub enum TextureLoadingError {
     InvalidPath,
-    NotFound,
+    Io(io::Error),
 }
 
 impl TextureLoader {
@@ -261,6 +260,10 @@ impl TextureLoader {
         self.atlas.generate_mipmaps(level);
     }
 
+    /// # Errors
+    ///
+    /// An error will be returned if the passed path does not contain a filename
+    /// or cannot be read.
     pub fn load<P: AsRef<Path>>(&mut self, path: P) -> LoadingResult<()> {
         let path = path.as_ref();
 
@@ -270,7 +273,9 @@ impl TextureLoader {
             path.display().bright_blue().bold()
         );
 
-        let name = path.file_stem().ok_or(LoadingError::Texture(TextureLoadingError::InvalidPath))?;
+        let name = path
+            .file_stem()
+            .ok_or(LoadingError::Texture(TextureLoadingError::InvalidPath))?;
         let name = name.to_string_lossy();
         let name = name.to_string();
 
@@ -286,7 +291,7 @@ impl TextureLoader {
                     self.atlas.append(name, image);
                 }
             }
-            Err(_) => return Err(LoadingError::Texture(TextureLoadingError::NotFound)),
+            Err(err) => return Err(LoadingError::Texture(TextureLoadingError::Io(err))),
         }
 
         Ok(())

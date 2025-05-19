@@ -41,6 +41,14 @@ impl BlockManager {
         Ok(block)
     }
 
+    /// # Errors
+    ///
+    /// An error will be returned if:
+    /// - The passed path does not contain a filename.
+    /// - The passed path cannot be read.
+    /// - The passed path data cannot be successfully parsed.
+    /// - An error occurred while loading some texture (see
+    ///   [`TextureLoader::load`]).
     pub fn load<P: AsRef<Path>, R: AsRef<Path>>(
         textures: &mut TextureLoader,
         root: R,

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use glam::{uvec2, vec2, U16Vec3, UVec2, Vec2, Vec3};
+use glam::{U16Vec3, UVec2, Vec2, Vec3, uvec2, vec2};
 pub use glium;
 use glium::{Display, vertex::AttributeType};
 use glutin::{
