@@ -1,9 +1,10 @@
-use meralus_engine::{WindowDisplay, glium::Program};
+use glium::Program;
+use meralus_engine::WindowDisplay;
 
 pub use self::{
     shape::{Line, Rectangle, ShapeRenderer},
     text::{FONT, FONT_BOLD, TextRenderer},
-    voxel::VoxelRenderer,
+    voxel::{Voxel, VoxelRenderer},
 };
 
 mod shape;
@@ -14,19 +15,19 @@ mod voxel;
 macro_rules! impl_vertex {
     ($struct_name:ident { $($field_name:ident: $field_ty:ty),+ }) => {
         impl $struct_name {
-            const BINDINGS: &[(std::borrow::Cow<'static, str>, usize, i32, meralus_engine::glium::vertex::AttributeType, bool)] = &[
+            const BINDINGS: &[(std::borrow::Cow<'static, str>, usize, i32, glium::vertex::AttributeType, bool)] = &[
                 $((
                     std::borrow::Cow::Borrowed(stringify!($field_name)),
-                    meralus_engine::glium::__glium_offset_of!($struct_name, $field_name),
+                    glium::__glium_offset_of!($struct_name, $field_name),
                     -1,
-                    <$field_ty as meralus_engine::glium::vertex::Attribute>::TYPE,
+                    <$field_ty as glium::vertex::Attribute>::TYPE,
                     false,
                 )),+
             ];
         }
 
-        impl meralus_engine::glium::Vertex for $struct_name {
-            fn build_bindings() -> meralus_engine::glium::VertexFormat {
+        impl glium::Vertex for $struct_name {
+            fn build_bindings() -> glium::VertexFormat {
                 Self::BINDINGS
             }
         }

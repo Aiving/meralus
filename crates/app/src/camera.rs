@@ -1,6 +1,6 @@
 use glam::{Mat4, Vec3, vec3};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     pub position: Vec3,
     pub target: Vec3,
@@ -24,8 +24,15 @@ impl Camera {
         }
     }
 
-    pub fn matrix(&self) -> Mat4 {
+    pub fn projection(&self) -> Mat4 {
         Mat4::perspective_rh_gl(self.fov, self.aspect_ratio, self.z_near, self.z_far)
-            * Mat4::look_at_rh(self.position, self.target, self.up)
+    }
+
+    pub fn view(&self) -> Mat4 {
+        Mat4::look_at_rh(self.position, self.target, self.up)
+    }
+
+    pub fn matrix(&self) -> Mat4 {
+        self.projection() * self.view()
     }
 }

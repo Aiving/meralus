@@ -5,17 +5,15 @@ use fontdue::{
     layout::{CoordinateSystem, GlyphRasterConfig, Layout, TextStyle},
 };
 use glam::{Mat4, Vec2, Vec3, vec2, vec3};
-use image::ImageBuffer;
-use meralus_engine::{
-    WindowDisplay,
-    glium::{
-        DrawParameters, Frame, Program, Rect, Surface, VertexBuffer,
-        index::{NoIndices, PrimitiveType},
-        uniform,
-        uniforms::MagnifySamplerFilter,
-        vertex::BufferCreationError,
-    },
+use glium::{
+    DrawParameters, Frame, Program, Rect, Surface, VertexBuffer,
+    index::{NoIndices, PrimitiveType},
+    uniform,
+    uniforms::MagnifySamplerFilter,
+    vertex::BufferCreationError,
 };
+use image::ImageBuffer;
+use meralus_engine::WindowDisplay;
 use meralus_shared::{Color, FromValue};
 
 use super::Shader;
@@ -202,7 +200,8 @@ impl TextRenderer {
                         continue;
                     }
 
-                    let (offset, size) = if let Some(rect) = font_info.atlas.get_rect(&glyph.key) {
+                    let (offset, size, _) = if let Some(rect) = font_info.atlas.get_rect(&glyph.key)
+                    {
                         rect
                     } else {
                         let (metrics, bitmap) = font_info.font.rasterize(glyph.parent, size);
@@ -220,6 +219,7 @@ impl TextRenderer {
                     };
 
                     vertex.screen_position = position + Point2D::new(glyph.x, glyph.y).into();
+
                     vertex.offset = offset;
                     vertex.size = size;
                 } else {

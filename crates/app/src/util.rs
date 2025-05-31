@@ -1,9 +1,7 @@
 use glam::{DVec3, Vec2, Vec3, vec2, vec3};
 use glamour::ToRaw;
-use meralus_engine::{
-    KeyCode,
-    glium::{buffer::ReadError, pixel_buffer::PixelBuffer},
-};
+use glium::{buffer::ReadError, pixel_buffer::PixelBuffer};
+use meralus_engine::KeyCode;
 use meralus_shared::{Color, Cube3D};
 use meralus_world::Face;
 

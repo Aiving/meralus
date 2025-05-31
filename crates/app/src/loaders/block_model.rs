@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::Path};
 
 use glam::{Vec2, Vec3};
+use glamour::ToRaw;
 use meralus_shared::Cube3D;
 use meralus_world::{ElementRotation, Face, Faces, JsonError, TexturePath, TextureRef};
 use owo_colors::OwoColorize;
@@ -8,13 +9,20 @@ use owo_colors::OwoColorize;
 use super::{LoadingResult, block::BlockManager, texture::TextureLoader};
 use crate::{Game, loaders::LoadingError};
 
+#[derive(Debug, PartialEq)]
+pub struct FaceUV {
+    pub offset: Vec2,
+    pub scale: Vec2,
+}
+
 #[derive(Debug)]
 pub struct BlockModelFace {
     pub texture_id: usize,
     pub face: Face,
     pub cull_face: Option<Face>,
     pub tint: bool,
-    pub uv: [Vec2; 4],
+    pub uv: FaceUV,
+    pub is_opaque: bool,
 }
 
 impl BlockModelFace {
@@ -41,18 +49,12 @@ pub struct BakedBlockModel {
     pub elements: Vec<BlockModelElement>,
 }
 
+const ERROR: [f32; 3] = [0.00001; 3];
+
 impl BakedBlockModel {
     pub fn is_opaque(&self) -> bool {
-        self.elements.iter().any(|element| {
-            let start = (element.cube.origin.to_vector() - Vec3::ZERO.into()).abs();
-            let end = (element.cube.size.to_vector() - Vec3::ONE.into()).abs();
-
-            start.x < 0.00001
-                && start.y < 0.00001
-                && start.z < 0.00001
-                && end.x < 0.00001
-                && end.y < 0.00001
-                && end.z < 0.00001
+        self.elements.iter().any(|BlockModelElement { cube, .. }| {
+            (cube.size.to_raw() - Vec3::ONE).abs().to_array() < ERROR
         })
     }
 }
@@ -140,19 +142,18 @@ impl BakedBlockModelLoader {
                     faces: match element.faces {
                         Faces::All(data) => Face::ALL.map(|face| {
                             let texture = get_texture(&block.textures, &data.texture).unwrap();
-                            let (offset, scale) = textures
+                            let (offset, scale, alpha) = textures
                                 .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
                                 .unwrap();
 
-                            let uv = face.as_uv().map(|uv| {
-                                let uv = if let Some([start, end]) = data.uv {
-                                    start + uv * end
-                                } else {
-                                    uv
-                                };
-
-                                offset + uv * scale
-                            });
+                            let uv = if let Some([start, end]) = data.uv {
+                                FaceUV {
+                                    offset: offset + start,
+                                    scale: scale * end,
+                                }
+                            } else {
+                                FaceUV { offset, scale }
+                            };
 
                             Some(BlockModelFace {
                                 texture_id: 0,
@@ -160,6 +161,7 @@ impl BakedBlockModelLoader {
                                 cull_face: data.cull_face,
                                 uv,
                                 tint: data.tint,
+                                is_opaque: alpha == 255,
                             })
                         }),
                         Faces::Unique(face_map) => {
@@ -167,19 +169,18 @@ impl BakedBlockModelLoader {
 
                             for (face, data) in face_map {
                                 let texture = get_texture(&block.textures, &data.texture).unwrap();
-                                let (offset, scale) = textures
+                                let (offset, scale, alpha) = textures
                                     .get_texture(texture.1.file_stem().unwrap().to_string_lossy())
                                     .unwrap();
 
-                                let uv = face.as_uv().map(|uv| {
-                                    let uv = if let Some([start, end]) = data.uv {
-                                        start + uv * end
-                                    } else {
-                                        uv
-                                    };
-
-                                    offset + uv * scale
-                                });
+                                let uv = if let Some([start, end]) = data.uv {
+                                    FaceUV {
+                                        offset: offset + start,
+                                        scale: scale * end,
+                                    }
+                                } else {
+                                    FaceUV { offset, scale }
+                                };
 
                                 faces[face.normal_index()] = Some(BlockModelFace {
                                     texture_id: 0,
@@ -187,6 +188,7 @@ impl BakedBlockModelLoader {
                                     cull_face: data.cull_face,
                                     uv,
                                     tint: data.tint,
+                                    is_opaque: alpha == 255,
                                 });
                             }
 

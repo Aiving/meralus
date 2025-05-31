@@ -2,10 +2,24 @@ use std::io::{self, Read};
 
 use glam::{IVec2, IVec3, U16Vec3, Vec3, vec3};
 use noise::{Fbm, NoiseFn, Perlin};
-use owo_colors::OwoColorize;
 
 pub const CHUNK_SIZE: usize = 16;
+pub const CHUNK_SIZE_U16: u16 = 16;
+pub const CHUNK_SIZE_I32: i32 = 16;
+pub const CHUNK_SIZE_F32: f32 = 16.0;
+pub const CHUNK_SIZE_F64: f64 = 16.0;
+
 pub const SUBCHUNK_COUNT: usize = 16;
+pub const SUBCHUNK_COUNT_I32: i32 = 16;
+pub const SUBCHUNK_COUNT_U16: u16 = 16;
+pub const SUBCHUNK_COUNT_F32: f32 = 16.0;
+pub const SUBCHUNK_COUNT_F64: f64 = 16.0;
+
+pub const CHUNK_HEIGHT: usize = CHUNK_SIZE * SUBCHUNK_COUNT;
+pub const CHUNK_HEIGHT_I32: i32 = CHUNK_SIZE_I32 * SUBCHUNK_COUNT_I32;
+pub const CHUNK_HEIGHT_U16: u16 = CHUNK_SIZE_U16 * SUBCHUNK_COUNT_U16;
+pub const CHUNK_HEIGHT_F32: f32 = CHUNK_SIZE_F32 * SUBCHUNK_COUNT_F32;
+pub const CHUNK_HEIGHT_F64: f64 = CHUNK_SIZE_F64 * SUBCHUNK_COUNT_F64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Cube whose size is specified by [`CHUNK_SIZE`] constant.
@@ -96,9 +110,9 @@ impl Chunk {
     pub fn to_local(&self, position: Vec3) -> U16Vec3 {
         let position = position.floor();
 
-        let x = (position.x.rem_euclid(CHUNK_SIZE as f32)) as u16;
+        let x = (position.x.rem_euclid(CHUNK_SIZE_F32)) as u16;
         let y = position.y.floor() as u16;
-        let z = (position.z.rem_euclid(CHUNK_SIZE as f32)) as u16;
+        let z = (position.z.rem_euclid(CHUNK_SIZE_F32)) as u16;
 
         U16Vec3::new(x, y, z)
     }
@@ -111,16 +125,14 @@ impl Chunk {
         let IVec2 { x, y } = self.origin;
 
         IVec3::new(
-            (x * CHUNK_SIZE as i32) + i32::from(position.x),
+            (x * CHUNK_SIZE_I32) + i32::from(position.x),
             i32::from(position.y),
-            (y * CHUNK_SIZE as i32) + i32::from(position.z),
+            (y * CHUNK_SIZE_I32) + i32::from(position.z),
         )
     }
 
     pub const fn contains_local_position(&self, position: U16Vec3) -> bool {
-        position.x < CHUNK_SIZE as u16
-            && position.y < (SUBCHUNK_COUNT * CHUNK_SIZE) as u16
-            && position.z < CHUNK_SIZE as u16
+        position.x < CHUNK_SIZE_U16 && position.y < CHUNK_HEIGHT_U16 && position.z < CHUNK_SIZE_U16
     }
 
     pub fn contains_position(&self, position: Vec3) -> bool {
@@ -239,7 +251,7 @@ impl Chunk {
     pub fn generate_surface(&mut self, seed: u32) {
         let generator = Fbm::<Perlin>::new(seed);
 
-        let position = self.origin.as_vec2() * CHUNK_SIZE as f32;
+        let position = self.origin.as_vec2() * CHUNK_SIZE_F32;
         // let spline = Spline::from_iter([
         //     Key::new(-1.0, 100.0, Interpolation::Cosine),
         //     Key::new(0.3, 100.0, Interpolation::Cosine),
@@ -251,27 +263,26 @@ impl Chunk {
             for x in 0..CHUNK_SIZE {
                 let mut max = 0;
 
-                for y in 0..(CHUNK_SIZE * SUBCHUNK_COUNT) {
+                for y in 0..CHUNK_HEIGHT {
                     let value = generator.get([
-                        (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
-                        y as f64 / (CHUNK_SIZE * SUBCHUNK_COUNT) as f64,
-                        (f64::from(position.y) + z as f64) / CHUNK_SIZE as f64,
+                        (f64::from(position.x) + x as f64) / CHUNK_SIZE_F64,
+                        y as f64 / CHUNK_HEIGHT_F64,
+                        (f64::from(position.y) + z as f64) / CHUNK_SIZE_F64,
                     ]);
 
                     if value > 0.0 {
                         max = max.max(y);
 
-                        if y == (CHUNK_SIZE * SUBCHUNK_COUNT - 1) {
+                        if y == CHUNK_HEIGHT - 1 {
                             self.set_block_unchecked(
                                 self.to_local(vec3(x as f32, y as f32, z as f32)),
                                 2,
                             );
                         } else {
                             let value = generator.get([
-                                (f64::from(position.x) + x as f64) / CHUNK_SIZE as f64,
-                                (y + 1).min((CHUNK_SIZE * SUBCHUNK_COUNT) - 1) as f64
-                                    / (CHUNK_SIZE * SUBCHUNK_COUNT) as f64,
-                                (f64::from(position.y) + z as f64) / CHUNK_SIZE as f64,
+                                (f64::from(position.x) + x as f64) / CHUNK_SIZE_F64,
+                                (y + 1).min(CHUNK_HEIGHT - 1) as f64 / CHUNK_HEIGHT_F64,
+                                (f64::from(position.y) + z as f64) / CHUNK_SIZE_F64,
                             ]);
 
                             if value <= 0.0 {
@@ -290,24 +301,6 @@ impl Chunk {
                 }
             }
         }
-
-        println!(
-            "[{:18}] Generated chunk at {}: {} opaque blocks",
-            "INFO/WorldGen".bright_green(),
-            format!("{:>2} {:>2}", self.origin.x, self.origin.y)
-                .bright_blue()
-                .bold(),
-            self.subchunks
-                .iter()
-                .fold(0, |c, subchunk| c + subchunk.blocks.iter().fold(
-                    0,
-                    |c, y| c + y
-                        .iter()
-                        .fold(0, |c, z| c + z.iter().filter(|&&x| x != 0).count())
-                ))
-                .bright_blue()
-                .bold()
-        );
     }
 }
 

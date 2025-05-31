@@ -7,8 +7,16 @@
     },
     "elements": [
         {
-            "start": [0, 0, 0],
-            "end": [1, 1, 1],
+            "start": [
+                0,
+                0,
+                0
+            ],
+            "end": [
+                1,
+                1,
+                1
+            ],
             "faces": {
                 "top": {
                     "texture": "#top",
@@ -38,8 +46,16 @@
             }
         },
         {
-            "start": [0, 0, 0],
-            "end": [1, 1, 1],
+            "start": [
+                0,
+                0,
+                0
+            ],
+            "end": [
+                1,
+                1,
+                1
+            ],
             "faces": {
                 "left": {
                     "texture": "#side-overlay",

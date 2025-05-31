@@ -1,26 +1,27 @@
 use std::{
+    collections::HashMap,
     fs::DirEntry,
     ops::Range,
     path::{Path, PathBuf},
 };
 
 use glam::{DVec3, IVec2, Mat4, U16Vec3, Vec2, Vec3, ivec3, u16vec3, vec3};
-use meralus_engine::{
-    Vertex, WindowDisplay,
-    glium::{
-        Texture2d,
-        uniforms::{MagnifySamplerFilter, MinifySamplerFilter, Sampler},
-    },
+use glium::{
+    Texture2d,
+    uniforms::{MagnifySamplerFilter, MinifySamplerFilter, Sampler},
 };
+use meralus_engine::WindowDisplay;
 use meralus_shared::Color;
-use meralus_world::{Axis, CHUNK_SIZE, Chunk, ChunkManager, Face, SUBCHUNK_COUNT};
+use meralus_world::{
+    Axis, CHUNK_SIZE, CHUNK_SIZE_F32, CHUNK_SIZE_U16, Chunk, ChunkManager, Face, SUBCHUNK_COUNT_U16,
+};
 use owo_colors::OwoColorize;
 
 use crate::{
-    Aabb, BakedBlockModelLoader, TextureLoader,
+    Aabb, BakedBlockModelLoader, Block, BlockManager, TextureLoader,
     loaders::BakedBlockModel,
-    mesh::Mesh,
     raycast::{HitType, RayCastResult},
+    renderers::Voxel,
     vertex_ao,
 };
 
@@ -28,7 +29,8 @@ const GRASS_COLOR: Color = Color::from_hsl(120.0, 0.4, 0.75);
 
 pub struct Game {
     textures: TextureLoader,
-    blocks: BakedBlockModelLoader,
+    blocks: BlockManager,
+    models: BakedBlockModelLoader,
     chunk_manager: ChunkManager,
     players: Vec<Player>,
     root: PathBuf,
@@ -131,7 +133,8 @@ impl Game {
     ) -> Self {
         Self {
             textures: TextureLoader::new(display),
-            blocks: BakedBlockModelLoader::default(),
+            blocks: BlockManager::new(),
+            models: BakedBlockModelLoader::default(),
             players: Vec::new(),
             root: root.into(),
             chunk_manager: ChunkManager::from_range(x_range, &z_range),
@@ -180,7 +183,7 @@ impl Game {
             }
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, true);
+        bfs_light.calculate(&mut self.chunk_manager, &self.models, true);
     }
 
     pub fn generate_lights(&mut self) {
@@ -193,7 +196,7 @@ impl Game {
 
                     if chunk
                         .get_block_unchecked(position)
-                        .is_none_or(|block| !self.blocks.get(block.into()).unwrap().is_opaque())
+                        .is_none_or(|block| !self.models.get(block.into()).unwrap().is_opaque())
                     {
                         chunk.set_sky_light(position, 15);
 
@@ -203,7 +206,7 @@ impl Game {
             }
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, true);
+        bfs_light.calculate(&mut self.chunk_manager, &self.models, true);
     }
 
     pub fn set_block_light(&mut self, position: Vec3, light_level: u8) {
@@ -220,11 +223,19 @@ impl Game {
             bfs_light.push(LightNode(position, chunk.origin));
         }
 
-        bfs_light.calculate(&mut self.chunk_manager, &self.blocks, false);
+        bfs_light.calculate(&mut self.chunk_manager, &self.models, false);
+    }
+
+    pub fn register_block<T: Block + 'static>(&mut self, block: T) {
+        let id = block.id();
+
+        self.load_block(self.root.join("models").join(id).with_extension("json"));
+
+        self.blocks.register(block);
     }
 
     pub fn load_block<P: AsRef<Path>>(&mut self, path: P) {
-        self.blocks
+        self.models
             .load(&mut self.textures, &self.root, path)
             .unwrap();
     }
@@ -307,7 +318,7 @@ impl Game {
                 if entry.metadata().is_ok_and(|metadata| metadata.is_file())
                     && !entry.file_name().to_string_lossy().starts_with("cuboid")
                 {
-                    self.blocks
+                    self.models
                         .load(&mut self.textures, &self.root, entry.path())
                         .unwrap();
                 }
@@ -339,7 +350,7 @@ impl Game {
         self.textures.get_texture_count()
     }
 
-    pub fn get_texture<I: AsRef<str>>(&self, name: I) -> Option<(Vec2, Vec2)> {
+    pub fn get_texture<I: AsRef<str>>(&self, name: I) -> Option<(Vec2, Vec2, u8)> {
         self.textures.get_texture(name.as_ref())
     }
 
@@ -528,7 +539,7 @@ impl Game {
         }
     }
 
-    pub fn compute_chunk_mesh_at(&self, position: &IVec2) -> Option<[Mesh; 6]> {
+    pub fn compute_chunk_mesh_at(&self, position: &IVec2) -> Option<[(Face, [Vec<Voxel>; 2]); 6]> {
         self.chunk_manager
             .get_chunk(position)
             .map(|chunk| self.compute_chunk_mesh(chunk))
@@ -537,31 +548,27 @@ impl Game {
     pub fn get_model_for(&self, position: Vec3) -> Option<&BakedBlockModel> {
         self.chunk_manager
             .get_block(position)
-            .and_then(|block| self.blocks.get(block.into()))
+            .and_then(|block| self.models.get(block.into()))
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn compute_chunk_mesh(&self, chunk: &Chunk) -> [Mesh; 6] {
+    pub fn compute_chunk_mesh(&self, chunk: &Chunk) -> [(Face, [Vec<Voxel>; 2]); 6] {
         let origin = chunk.origin.as_vec2();
-        let mut meshes = Face::ALL.map(Mesh::empty);
+        let mut voxels = Face::ALL.map(|face| (face, [const { Vec::new() }; 2]));
 
-        for mesh in &mut meshes {
-            mesh.origin = chunk.origin;
-        }
-
-        for y in 0..(CHUNK_SIZE as u16 * SUBCHUNK_COUNT as u16) {
-            for z in 0..(CHUNK_SIZE as u16) {
-                for x in 0..(CHUNK_SIZE as u16) {
+        for y in 0..(CHUNK_SIZE_U16 * SUBCHUNK_COUNT_U16) {
+            for z in 0..CHUNK_SIZE_U16 {
+                for x in 0..CHUNK_SIZE_U16 {
                     let local_position = u16vec3(x, y, z);
-                    let float_position = local_position.as_vec3()
-                        + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
+                    let world_position =
+                        local_position.as_vec3() + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE_F32);
 
                     if let Some(model) = chunk
                         .get_block(local_position)
-                        .and_then(|block_id| self.blocks.get(block_id.into()))
+                        .and_then(|block_id| self.models.get(block_id.into()))
                     {
                         let position = local_position.as_vec3()
-                            + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE as f32);
+                            + (vec3(origin.x, 0.0, origin.y) * CHUNK_SIZE_F32);
 
                         for element in &model.elements {
                             let matrix = element.rotation.map(|rotation| {
@@ -593,22 +600,42 @@ impl Game {
 
                                 scale = Vec3::ONE;
 
-                                (matrix, scale, rotation.origin)
+                                (matrix, rotation.origin, scale)
                             });
 
                             for model_face in element.faces.iter().flatten() {
                                 let neighbour_position =
-                                    float_position + model_face.face.as_normal().as_vec3();
+                                    world_position + model_face.face.as_normal().as_vec3();
 
-                                if model_face.cull_face.is_none_or(|face| {
-                                    self.chunk_manager
-                                        .get_block(float_position + face.as_normal().as_vec3())
-                                        .is_none_or(|block| {
-                                            !self.blocks.get(block.into()).unwrap().is_opaque()
+                                let culled = model_face.cull_face.is_some_and(|cull_face| {
+                                    let neighbour = self.chunk_manager.get_block(
+                                        world_position + cull_face.as_normal().as_vec3(),
+                                    );
+
+                                    neighbour
+                                        .and_then(|neighbour| self.models.get(neighbour.into()))
+                                        .is_some_and(|model| {
+                                            if model.is_opaque() {
+                                                true
+                                            } else {
+                                                let opposite_face = cull_face.opposite();
+
+                                                model.elements.iter().any(|element| {
+                                                    element.faces[opposite_face.normal_index()]
+                                                        .as_ref()
+                                                        .is_some_and(|face| {
+                                                            if face.is_opaque {
+                                                                true
+                                                            } else {
+                                                                face.uv.eq(&model_face.uv)
+                                                            }
+                                                        })
+                                                })
+                                            }
                                         })
-                                }) {
-                                    let mesh = &mut meshes[model_face.face.normal_index()];
+                                });
 
+                                if !culled {
                                     let mut vertices =
                                         model_face.face.as_vertices().map(|vertice| {
                                             Vec3::from_array(element.cube.origin.to_array())
@@ -616,7 +643,7 @@ impl Game {
                                                     * Vec3::from_array(element.cube.size.to_array())
                                         });
 
-                                    let mut uvs = model_face.uv;
+                                    let mut uvs = model_face.face.as_uv();
 
                                     let mut aos =
                                         model_face.face.as_vertice_corners().map(|corner| {
@@ -626,7 +653,7 @@ impl Game {
                                                     self.chunk_manager
                                                         .get_block(position + neighbour.as_vec3())
                                                         .is_some_and(|block| {
-                                                            self.blocks
+                                                            self.models
                                                                 .get(block.into())
                                                                 .unwrap()
                                                                 .ambient_occlusion
@@ -636,7 +663,13 @@ impl Game {
                                             vertex_ao(side1, side2, corner)
                                         });
 
+                                    // let mut aos_flipped = false;
+
                                     if aos[1] + aos[2] > aos[0] + aos[3] {
+                                        // aos_flipped = true;
+
+                                        // aos = aos[1], aos[2], aos[3], aos[0]
+
                                         vertices.swap(0, 1);
                                         vertices.swap(1, 2);
                                         vertices.swap(2, 3);
@@ -650,30 +683,38 @@ impl Game {
                                         uvs.swap(2, 3);
                                     }
 
-                                    mesh.vertices.extend([0, 1, 2, 2, 3, 0].map(|vertice| {
-                                        let corner = matrix.map_or(
-                                            vertices[vertice],
-                                            |(matrix, scale, origin)| {
-                                                matrix.transform_point3(vertices[vertice] - origin)
-                                                    * scale
+                                    let vertices =
+                                        matrix.map_or(vertices, |(matrix, origin, scale)| {
+                                            vertices.map(|vertice| {
+                                                matrix.transform_point3(vertice - origin) * scale
                                                     + origin
-                                            },
-                                        );
+                                            })
+                                        });
 
-                                        Vertex::from_vec(
-                                            corner,
-                                            local_position,
-                                            uvs[vertice],
-                                            self.chunk_manager.get_light(neighbour_position),
-                                            if model.name == "grass_block" && model_face.tint {
-                                                GRASS_COLOR
-                                            } else {
-                                                Color::WHITE
-                                            }
-                                            .multiply_rgb(model_face.face.get_light_level())
-                                            .multiply_rgb(aos[vertice]),
-                                        )
-                                    }));
+                                    let voxels = &mut voxels[model_face.face.normal_index()].1;
+                                    let voxels = if model_face.is_opaque {
+                                        &mut voxels[0]
+                                    } else {
+                                        &mut voxels[1]
+                                    };
+
+                                    voxels.push(Voxel {
+                                        position,
+                                        vertices,
+                                        face: model_face.face,
+                                        origin: chunk.origin,
+                                        aos,
+                                        light: self.chunk_manager.get_light(neighbour_position),
+                                        color: if model.name == "grass_block" && model_face.tint {
+                                            GRASS_COLOR
+                                        } else {
+                                            Color::WHITE
+                                        },
+                                        uvs: uvs.map(|uv| {
+                                            model_face.uv.offset + uv * model_face.uv.scale
+                                        }),
+                                        is_opaque: model_face.is_opaque,
+                                    });
                                 }
                             }
                         }
@@ -682,15 +723,17 @@ impl Game {
             }
         }
 
-        meshes
+        voxels
     }
 
     #[must_use]
-    pub fn compute_world_mesh(&self) -> Vec<[Mesh; 6]> {
-        let mut meshes = Vec::new();
+    pub fn compute_world_mesh(&self) -> HashMap<(IVec2, Face), [Vec<Voxel>; 2]> {
+        let mut meshes = HashMap::new();
 
         for chunk in self.chunk_manager.chunks() {
-            meshes.push(self.compute_chunk_mesh(chunk));
+            for (face, data) in self.compute_chunk_mesh(chunk) {
+                meshes.insert((chunk.origin, face), data);
+            }
 
             println!(
                 "[{:18}] Generated mesh for chunk at {}",

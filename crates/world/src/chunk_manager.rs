@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use glam::{IVec2, IVec3, U16Vec3, Vec3};
+use owo_colors::OwoColorize;
 
-use crate::{CHUNK_SIZE, Chunk, SUBCHUNK_COUNT};
+use crate::{CHUNK_SIZE_I32, Chunk, SUBCHUNK_COUNT_I32};
 
 pub struct ChunkManager {
     chunks: HashMap<IVec2, Chunk>,
@@ -24,8 +25,30 @@ impl ChunkManager {
     }
 
     pub fn generate_surface(&mut self, seed: u32) {
-        for chunk in self.chunks_mut() {
+        let chunks = self.len();
+
+        for (i, chunk) in self.chunks_mut().enumerate() {
             chunk.generate_surface(seed);
+
+            println!(
+                "[{:18}] Generated chunk at {}: {} opaque blocks ({} / {chunks})",
+                "INFO/WorldGen".bright_green(),
+                format!("{:>2} {:>2}", chunk.origin.x, chunk.origin.y)
+                    .bright_blue()
+                    .bold(),
+                chunk
+                    .subchunks
+                    .iter()
+                    .fold(0, |c, subchunk| c + subchunk.blocks.iter().fold(
+                        0,
+                        |c, y| c + y
+                            .iter()
+                            .fold(0, |c, z| c + z.iter().filter(|&&x| x != 0).count())
+                    ))
+                    .bright_blue()
+                    .bold(),
+                i + 1
+            );
         }
     }
 
@@ -41,9 +64,9 @@ impl ChunkManager {
         let size = (max - min) * 16;
 
         IVec3::new(
-            size.x + CHUNK_SIZE as i32,
-            (CHUNK_SIZE * SUBCHUNK_COUNT) as i32,
-            size.y + CHUNK_SIZE as i32,
+            size.x + CHUNK_SIZE_I32,
+            CHUNK_SIZE_I32 * SUBCHUNK_COUNT_I32,
+            size.y + CHUNK_SIZE_I32,
         )
     }
 
@@ -56,7 +79,7 @@ impl ChunkManager {
             max = max.max(*chunk);
         }
 
-        (min * CHUNK_SIZE as i32, max * CHUNK_SIZE as i32)
+        (min * CHUNK_SIZE_I32, max * CHUNK_SIZE_I32)
     }
 
     pub fn to_local(position: Vec3) -> IVec2 {

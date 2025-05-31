@@ -1,15 +1,4 @@
 {
     "model": "game:models/grass_block",
-    "variants": [
-        {
-            "conditions": [
-                {
-                    "type": "equals",
-                    "target": "snowy",
-                    "value": true
-                }
-            ],
-            "model": "game:models/grass_block_snow"
-        }
-    ]
+    "variants": []
 }

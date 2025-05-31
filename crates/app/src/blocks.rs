@@ -1,10 +1,14 @@
-use meralus_world::{Property, PropertyValue};
+use meralus_world::Property;
 
 use crate::Block;
 
 pub struct AirBlock;
 
 impl Block for AirBlock {
+    fn id(&self) -> &'static str {
+        "air"
+    }
+
     fn get_properties(&self) -> Vec<Property> {
         Vec::new()
     }
@@ -13,20 +17,23 @@ impl Block for AirBlock {
 pub struct DirtBlock;
 
 impl Block for DirtBlock {
+    fn id(&self) -> &'static str {
+        "dirt"
+    }
+
     fn get_properties(&self) -> Vec<Property> {
         Vec::new()
     }
 }
 
-pub struct GrassBlock {
-    is_snowy: bool,
-}
+pub struct GrassBlock;
 
 impl Block for GrassBlock {
+    fn id(&self) -> &'static str {
+        "grass_block"
+    }
+
     fn get_properties(&self) -> Vec<Property> {
-        vec![Property {
-            name: "snowy",
-            value: PropertyValue::Boolean(self.is_snowy),
-        }]
+        Vec::new()
     }
 }

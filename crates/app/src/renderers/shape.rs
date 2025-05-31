@@ -1,12 +1,10 @@
 use glam::{Mat4, Vec2, Vec3};
-use meralus_engine::{
-    WindowDisplay,
-    glium::{
-        DrawParameters, Frame, Program, Surface, VertexBuffer,
-        index::{NoIndices, PrimitiveType},
-        uniform,
-    },
+use glium::{
+    DrawParameters, Frame, Program, Surface, VertexBuffer,
+    index::{NoIndices, PrimitiveType},
+    uniform,
 };
+use meralus_engine::WindowDisplay;
 use meralus_shared::Color;
 
 use super::Shader;
@@ -24,12 +22,14 @@ impl Shader for ShapeShader {
 pub struct ShapeVertex {
     pub position: Vec3,
     pub color: Color,
+    pub transform: Mat4,
 }
 
 impl_vertex! {
     ShapeVertex {
         position: [f32; 3],
-        color: [u8; 4]
+        color: [u8; 4],
+        transform: [[f32; 4]; 4]
     }
 }
 
@@ -49,10 +49,12 @@ impl Line {
             ShapeVertex {
                 position: self.start,
                 color: self.color,
+                transform: Mat4::IDENTITY,
             },
             ShapeVertex {
                 position: self.end,
                 color: self.color,
+                transform: Mat4::IDENTITY,
             },
         ]
     }
@@ -62,6 +64,7 @@ pub struct Rectangle {
     pub position: Vec2,
     pub size: Vec2,
     pub color: Color,
+    pub matrix: Option<Mat4>,
 }
 
 impl Rectangle {
@@ -70,7 +73,14 @@ impl Rectangle {
             position: Vec2::new(x, y),
             size: Vec2::new(width, height),
             color,
+            matrix: None,
         }
+    }
+
+    pub const fn with_matrix(mut self, matrix: Option<Mat4>) -> Self {
+        self.matrix = matrix;
+
+        self
     }
 
     pub fn as_vertices(&self) -> [ShapeVertex; 6] {
@@ -90,6 +100,7 @@ impl Rectangle {
             ShapeVertex {
                 position: position + offset,
                 color: self.color,
+                transform: self.matrix.unwrap_or_default(),
             }
         })
     }

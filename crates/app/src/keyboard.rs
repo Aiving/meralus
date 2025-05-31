@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use meralus_engine::{
-    KeyCode,
-    glium::winit::{event::KeyEvent, keyboard::PhysicalKey},
-};
+use meralus_engine::KeyCode;
 
 #[derive(Debug, Default)]
 pub struct KeyboardController {
@@ -30,22 +27,20 @@ impl KeyboardController {
         self.released.clear();
     }
 
-    pub fn handle_keyboard_input(&mut self, event: &KeyEvent) {
-        if let PhysicalKey::Code(code) = event.physical_key {
-            if event.state.is_pressed() {
-                if !event.repeat {
-                    self.pressed_once.insert(code);
+    pub fn handle_keyboard_input(&mut self, code: KeyCode, is_pressed: bool, repeat: bool) {
+        if is_pressed {
+            if !repeat {
+                self.pressed_once.insert(code);
 
-                    if self.pressed.contains(&code) {
-                        self.pressed.remove(&code);
-                    }
+                if self.pressed.contains(&code) {
+                    self.pressed.remove(&code);
                 }
-
-                self.pressed.insert(code);
-            } else {
-                self.pressed.remove(&code);
-                self.released.insert(code);
             }
+
+            self.pressed.insert(code);
+        } else {
+            self.pressed.remove(&code);
+            self.released.insert(code);
         }
     }
 }

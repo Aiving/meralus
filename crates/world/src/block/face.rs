@@ -136,6 +136,18 @@ impl Face {
     }
 
     #[must_use]
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::Bottom => Self::Top,
+            Self::Top => Self::Bottom,
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Front => Self::Back,
+            Self::Back => Self::Front,
+        }
+    }
+
+    #[must_use]
     pub fn get_neighbours(self) -> [IVec3; 8] {
         let mut normal = self.as_normal();
         let axis = self.as_axis();
@@ -337,6 +349,8 @@ impl Face {
 
 #[cfg(test)]
 mod tests {
+    use std::array;
+
     use super::Face;
 
     #[test]
@@ -344,5 +358,16 @@ mod tests {
         for face in Face::ALL {
             println!("{:#?}", face.as_vertice_corners());
         }
+    }
+
+    #[test]
+    fn test_uh() {
+        let top = Face::Top.as_vertices();
+        let bottom = Face::Bottom.as_vertices();
+
+        println!(
+            "{top:?} - {bottom:?} = {:?}",
+            array::from_fn::<_, 4, _>(|i| top[i] - bottom[i])
+        );
     }
 }

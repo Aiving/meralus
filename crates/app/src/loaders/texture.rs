@@ -1,14 +1,12 @@
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, io, path::Path};
 
 use glam::{UVec2, Vec2, uvec2};
-use image::RgbaImage;
-use meralus_engine::{
-    WindowDisplay,
-    glium::{
-        Rect, Texture2d,
-        texture::{MipmapsOption, RawImage2d},
-    },
+use glium::{
+    Rect, Texture2d,
+    texture::{MipmapsOption, RawImage2d},
 };
+use image::RgbaImage;
+use meralus_engine::WindowDisplay;
 use owo_colors::OwoColorize;
 
 use super::LoadingResult;
@@ -56,7 +54,7 @@ const fn pack_rgba((r, g, b, a): (u8, u8, u8, u8)) -> u32 {
 }
 
 pub struct TextureAtlas<K: Hash + Eq> {
-    texture_map: HashMap<K, Rect>,
+    texture_map: HashMap<K, (Rect, u8)>,
     next_texture_offset: UVec2,
     atlas: Texture2d,
 }
@@ -88,17 +86,20 @@ impl<K: Hash + Eq> TextureAtlas<K> {
         &self.atlas
     }
 
-    pub fn get_rect<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<(Vec2, Vec2)>
+    pub fn get_rect<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<(Vec2, Vec2, u8)>
     where
         K: Borrow<Q>,
     {
         self.texture_map.get(key).copied().map(
-            |Rect {
-                 left,
-                 bottom,
-                 width,
-                 height,
-             }| {
+            |(
+                Rect {
+                    left,
+                    bottom,
+                    width,
+                    height,
+                },
+                alpha,
+            )| {
                 (
                     Vec2::new(
                         left as f32 / self.atlas.width() as f32,
@@ -108,6 +109,7 @@ impl<K: Hash + Eq> TextureAtlas<K> {
                         width as f32 / self.atlas.width() as f32,
                         height as f32 / self.atlas.height() as f32,
                     ),
+                    alpha,
                 )
             },
         )
@@ -190,13 +192,14 @@ impl<K: Hash + Eq> TextureAtlas<K> {
         self.texture_map.contains_key(key)
     }
 
-    pub fn append(&mut self, key: K, image: RgbaImage) -> (Vec2, Vec2) {
+    pub fn append(&mut self, key: K, image: RgbaImage) -> (Vec2, Vec2, u8) {
         if let Some(rect) = self.get_rect(&key) {
             return rect;
         }
 
         let dimensions = image.dimensions();
 
+        let alpha = image.pixels().map(|pixel| pixel.0[3]).min().unwrap_or(0);
         let image = RawImage2d::from_raw_rgba_reversed(&image.into_raw(), dimensions);
 
         let offset = Rect {
@@ -207,8 +210,7 @@ impl<K: Hash + Eq> TextureAtlas<K> {
         };
 
         self.atlas.write(offset, image);
-
-        self.texture_map.insert(key, offset);
+        self.texture_map.insert(key, (offset, alpha));
 
         self.next_texture_offset = uvec2(offset.left + offset.width, offset.bottom);
 
@@ -221,6 +223,7 @@ impl<K: Hash + Eq> TextureAtlas<K> {
                 offset.width as f32 / self.atlas.width() as f32,
                 offset.height as f32 / self.atlas.height() as f32,
             ),
+            alpha,
         )
     }
 }
@@ -244,7 +247,7 @@ impl TextureLoader {
         }
     }
 
-    pub fn get_texture<T: AsRef<str>>(&self, name: T) -> Option<(Vec2, Vec2)> {
+    pub fn get_texture<T: AsRef<str>>(&self, name: T) -> Option<(Vec2, Vec2, u8)> {
         self.atlas.get_rect(name.as_ref())
     }
 

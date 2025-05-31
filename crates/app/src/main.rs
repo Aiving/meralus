@@ -14,7 +14,6 @@ mod clock;
 mod game;
 mod keyboard;
 mod loaders;
-mod mesh;
 mod player;
 mod raycast;
 mod renderers;
@@ -24,23 +23,22 @@ mod util;
 
 use std::{f32, fs, net::SocketAddrV4, ops::Not, time::Duration};
 
+use blocks::{AirBlock, DirtBlock, GrassBlock};
 use camera::Camera;
 use clap::Parser;
 use clock::Clock;
-use glam::{IVec2, Mat4, UVec2, Vec2, vec3};
-use glamour::FromRaw;
+use glam::{IVec2, Mat4, Quat, UVec2, Vec2, Vec3, vec3};
+use glamour::{FromRaw, ToRaw};
+use glium::{
+    Blend, BlendingFunction, LinearBlendingFactor, Rect, Surface, pixel_buffer::PixelBuffer,
+};
 use keyboard::KeyboardController;
 use meralus_animation::{Animation, AnimationPlayer, Curve, RepeatMode};
 use meralus_engine::{
-    ActiveEventLoop, Application, EventLoop, KeyCode, State, WindowDisplay,
-    glium::{
-        Blend, BlendingFunction, LinearBlendingFactor, Rect, Surface,
-        pixel_buffer::PixelBuffer,
-        winit::{event::MouseButton, event_loop::ControlFlow},
-    },
+    Application, CursorGrabMode, KeyCode, MouseButton, State, WindowContext, WindowDisplay,
 };
 use meralus_shared::{Color, Cube3D, Lerp, Point2D, Point3D, Rect2D, Size2D, Size3D};
-use meralus_world::{CHUNK_SIZE, Chunk, ChunkManager, SUBCHUNK_COUNT};
+use meralus_world::{CHUNK_HEIGHT_F32, CHUNK_SIZE_F32, CHUNK_SIZE_U16, Chunk, ChunkManager};
 use owo_colors::OwoColorize;
 use renderers::{FONT, FONT_BOLD, Line, ShapeRenderer, TextRenderer, VoxelRenderer};
 use ui::UiContext;
@@ -55,6 +53,10 @@ pub use self::{
     util::{AsColor, CameraExt, get_movement_direction, get_rotation_directions, vertex_ao},
 };
 
+pub const TICK_RATE: Duration = Duration::from_millis(50);
+pub const FIXED_FRAMERATE: Duration = Duration::from_secs(1)
+    .checked_div(60)
+    .expect("failed to calculate fixed framerate somehow");
 const TEXT_COLOR: Color = Color::from_hsl(120.0, 0.5, 0.4);
 const BG_COLOR: Color = Color::from_hsl(120.0, 0.4, 0.75);
 const DAY_COLOR: Color = Color::from_hsl(220.0, 0.5, 0.75);
@@ -94,6 +96,7 @@ struct Debugging {
     overlay: bool,
     wireframe: bool,
     draw_borders: bool,
+    inventory_open: bool,
     chunk_borders: Vec<Line>,
     vertices: usize,
     draw_calls: usize,
@@ -120,23 +123,36 @@ struct GameLoop {
     accel: Duration,
     clock: Clock,
     action_queue: Vec<Action>,
+    fixed_accel: Duration,
+    tick_accel: Duration,
+
+    inventory_slot: u8,
 }
+
+const INVENTORY_HOTBAR_SLOTS: u8 = 10;
 
 impl GameLoop {
     fn destroy_looking_at(&mut self) {
         if let Some(looking_at) = self.player.looking_at {
-            let local = self.game.chunk_manager().to_chunk_local(looking_at);
+            let local = self
+                .game
+                .chunk_manager()
+                .to_chunk_local(looking_at.position);
 
             if let Some(local) = local {
-                self.game.chunk_manager_mut().set_block(looking_at, 0);
+                self.game
+                    .chunk_manager_mut()
+                    .set_block(looking_at.position, 0);
 
                 if local.y >= 255 {
-                    self.game.chunk_manager_mut().set_sky_light(looking_at, 15);
+                    self.game
+                        .chunk_manager_mut()
+                        .set_sky_light(looking_at.position, 15);
                 }
 
-                self.game.update_block_sky_light(looking_at);
+                self.game.update_block_sky_light(looking_at.position);
 
-                let chunk = ChunkManager::to_local(looking_at);
+                let chunk = ChunkManager::to_local(looking_at.position);
 
                 if local.x == 0 {
                     let chunk = chunk - IVec2::X;
@@ -144,7 +160,7 @@ impl GameLoop {
                     if self.game.chunk_manager().contains_chunk(&chunk) {
                         self.action_queue.push(Action::UpdateChunkMesh(chunk));
                     }
-                } else if local.x == (CHUNK_SIZE as u16 - 1) {
+                } else if local.x == (CHUNK_SIZE_U16 - 1) {
                     let chunk = chunk + IVec2::X;
 
                     if self.game.chunk_manager().contains_chunk(&chunk) {
@@ -158,7 +174,7 @@ impl GameLoop {
                     if self.game.chunk_manager().contains_chunk(&chunk) {
                         self.action_queue.push(Action::UpdateChunkMesh(chunk));
                     }
-                } else if local.z == (CHUNK_SIZE as u16 - 1) {
+                } else if local.z == (CHUNK_SIZE_U16 - 1) {
                     let chunk = chunk + IVec2::Y;
 
                     if self.game.chunk_manager().contains_chunk(&chunk) {
@@ -171,13 +187,52 @@ impl GameLoop {
             }
         }
     }
+
+    fn tick(&mut self) {
+        self.tick_sum += 1;
+
+        self.clock.tick();
+
+        let progress = self.clock.get_progress();
+
+        self.voxel_renderer.set_sun_position(if progress > 0.5 {
+            1.0 - progress
+        } else {
+            progress
+        });
+    }
+
+    fn fixed_update(&mut self) {
+        if self.player_controllable {
+            self.player.handle_physics(
+                &self.game,
+                &self.keyboard,
+                &mut self.camera,
+                FIXED_FRAMERATE.as_secs_f32(),
+            );
+
+            self.camera.position = self.player.position;
+            self.camera.up = self.player.up;
+            self.camera.target = self.player.position + self.player.front;
+
+            self.player.frustum.update(self.camera.matrix());
+        }
+    }
 }
 
-impl State for GameLoop {
-    fn new(display: &WindowDisplay) -> Self {
-        let mut game = Game::new(display, "./resources", -2..2, -2..2);
+const SLOT_SIZE: f32 = 48.0f32;
 
-        game.load_buitlin_blocks();
+impl State for GameLoop {
+    fn new(context: WindowContext, display: &WindowDisplay) -> Self {
+        context.set_cursor_grab(CursorGrabMode::Confined);
+        context.set_cursor_visible(false);
+
+        let mut game = Game::new(display, "./resources", -3..3, -3..3);
+
+        game.register_block(AirBlock);
+        game.register_block(DirtBlock);
+        game.register_block(GrassBlock);
+
         game.generate_mipmaps(4);
 
         game.generate_world(12723);
@@ -203,7 +258,7 @@ impl State for GameLoop {
             ..Default::default()
         };
 
-        let mut text_renderer = TextRenderer::new(display, 4096).unwrap();
+        let mut text_renderer = TextRenderer::new(display, 4096 / 2).unwrap();
 
         text_renderer.add_font(display, "default", FONT);
         text_renderer.add_font(display, "default_bold", FONT_BOLD);
@@ -220,15 +275,26 @@ impl State for GameLoop {
             Animation::new(0.0, 1.0, 400, Curve::EASE_IN_OUT_EXPO, RepeatMode::Once),
         );
 
-        let mut voxel_renderer = VoxelRenderer::new(display, world_mesh);
+        animation_player.add(
+            "scale",
+            Animation::new(0.0, 1.0, 400, Curve::EASE_IN_OUT_EXPO, RepeatMode::Once),
+        );
 
-        voxel_renderer.set_sun_position(0.5);
+        animation_player.add(
+            "opacity",
+            Animation::new(0.0, 1.0, 400, Curve::LINEAR, RepeatMode::Once),
+        );
+
+        animation_player.add(
+            "scale-vertical",
+            Animation::new(0.0, 1.0, 400, Curve::EASE_IN_OUT_EXPO, RepeatMode::Once),
+        );
 
         Self {
             keyboard: KeyboardController::default(),
             animation_player,
             text_renderer,
-            voxel_renderer,
+            voxel_renderer: VoxelRenderer::new(display, world_mesh),
             shape_renderer: ShapeRenderer::new(display),
             window_matrix: Mat4::IDENTITY,
             debugging: Debugging {
@@ -236,16 +302,15 @@ impl State for GameLoop {
                 overlay: false,
                 wireframe: false,
                 draw_borders: false,
+                inventory_open: false,
                 chunk_borders: game.chunk_manager().chunks().fold(
                     Vec::new(),
                     |mut lines, Chunk { origin, .. }| {
-                        let origin = origin.as_vec2() * CHUNK_SIZE as f32;
-                        let chunk_size = CHUNK_SIZE as f32;
-                        let chunk_height = CHUNK_SIZE as f32 * SUBCHUNK_COUNT as f32;
+                        let origin = origin.as_vec2() * CHUNK_SIZE_F32;
 
                         lines.extend(cube_outline(Cube3D::new(
                             Point3D::new(origin.x, 0.0, origin.y),
-                            Size3D::new(chunk_size, chunk_height, chunk_size),
+                            Size3D::new(CHUNK_SIZE_F32, CHUNK_HEIGHT_F32, CHUNK_SIZE_F32),
                         )));
 
                         lines
@@ -264,14 +329,17 @@ impl State for GameLoop {
             ticks: 0,
             tick_sum: 0,
             accel: Duration::ZERO,
+            fixed_accel: Duration::ZERO,
+            tick_accel: Duration::ZERO,
             player,
             player_controllable: true,
             clock: Clock::default(),
             action_queue: Vec::new(),
+            inventory_slot: 0,
         }
     }
 
-    fn handle_window_resize(&mut self, _: &ActiveEventLoop, size: UVec2, scale_factor: f64) {
+    fn handle_window_resize(&mut self, size: UVec2, scale_factor: f64) {
         let size = size.as_vec2();
 
         self.window_matrix = Mat4::orthographic_rh_gl(
@@ -286,54 +354,55 @@ impl State for GameLoop {
         self.camera.aspect_ratio = size.x / size.y;
     }
 
-    fn handle_keyboard_input(
-        &mut self,
-        _: &ActiveEventLoop,
-        event: meralus_engine::glium::winit::event::KeyEvent,
-    ) {
-        self.keyboard.handle_keyboard_input(&event);
+    fn handle_keyboard_input(&mut self, key: KeyCode, is_pressed: bool, repeat: bool) {
+        self.keyboard.handle_keyboard_input(key, is_pressed, repeat);
     }
 
-    fn handle_mouse_button(&mut self, _: &ActiveEventLoop, button: MouseButton, is_pressed: bool) {
+    fn handle_mouse_button(&mut self, button: MouseButton, is_pressed: bool) {
         if button == MouseButton::Left && is_pressed {
             self.destroy_looking_at();
         }
     }
 
-    fn handle_mouse_motion(&mut self, _: &ActiveEventLoop, mouse_delta: Vec2) {
+    fn handle_mouse_motion(&mut self, mouse_delta: Vec2) {
         if self.player_controllable {
             self.player.handle_mouse(&self.game, mouse_delta);
         }
     }
 
-    fn tick(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, _: Duration) {
-        self.tick_sum += 1;
-
-        self.clock.tick();
-
-        let progress = self.clock.get_progress();
-
-        self.voxel_renderer.set_sun_position(if progress > 0.5 {
-            1.0 - progress
-        } else {
-            progress
-        });
-    }
-
-    fn fixed_update(&mut self, _: &ActiveEventLoop, _: &WindowDisplay, delta: f32) {
-        if self.player_controllable {
-            self.player
-                .handle_physics(&self.game, &self.keyboard, &mut self.camera, delta);
-
-            self.camera.position = self.player.position;
-            self.camera.up = self.player.up;
-            self.camera.target = self.player.position + self.player.front;
+    fn handle_mouse_wheel(&mut self, delta: Vec2) {
+        if delta.y > 0.0 {
+            if self.inventory_slot == INVENTORY_HOTBAR_SLOTS - 1 {
+                self.inventory_slot = 0;
+            } else {
+                self.inventory_slot += 1;
+            }
+        } else if delta.y < 0.0 {
+            if self.inventory_slot == 0 {
+                self.inventory_slot = INVENTORY_HOTBAR_SLOTS - 1;
+            } else {
+                self.inventory_slot -= 1;
+            }
         }
     }
 
     #[allow(clippy::too_many_lines)]
-    fn update(&mut self, event_loop: &ActiveEventLoop, display: &WindowDisplay, delta: Duration) {
+    fn update(&mut self, context: WindowContext, display: &WindowDisplay, delta: Duration) {
         self.accel += delta;
+        self.fixed_accel += delta;
+        self.tick_accel += delta;
+
+        while self.fixed_accel > FIXED_FRAMERATE {
+            self.fixed_accel -= FIXED_FRAMERATE;
+
+            self.fixed_update();
+        }
+
+        while self.tick_accel > TICK_RATE {
+            self.tick_accel -= TICK_RATE;
+
+            self.tick();
+        }
 
         if self.accel >= Duration::from_secs(1) {
             self.ticks = self.tick_sum;
@@ -341,8 +410,20 @@ impl State for GameLoop {
             self.tick_sum = 0;
         }
 
+        if self.keyboard.is_key_pressed_once(KeyCode::Tab) {
+            self.player_controllable = !self.player_controllable;
+
+            if self.player_controllable {
+                context.set_cursor_grab(CursorGrabMode::Confined);
+                context.set_cursor_visible(false);
+            } else {
+                context.set_cursor_grab(CursorGrabMode::None);
+                context.set_cursor_visible(true);
+            }
+        }
+
         if self.keyboard.is_key_pressed_once(KeyCode::Escape) {
-            event_loop.exit();
+            context.close_window();
         }
 
         self.animation_player.advance(delta.as_secs_f32());
@@ -354,6 +435,46 @@ impl State for GameLoop {
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyT) {
             self.debugging.wireframe = !self.debugging.wireframe;
+        }
+
+        if self.keyboard.is_key_pressed_once(KeyCode::KeyV) {
+            self.debugging.inventory_open = !self.debugging.inventory_open;
+
+            if self.debugging.inventory_open {
+                let scale = self.animation_player.get_mut("scale").unwrap();
+
+                scale.set_delay(0);
+                scale.to(1.0);
+
+                let scale_vertical = self.animation_player.get_mut("scale-vertical").unwrap();
+
+                scale_vertical.set_delay(400);
+                scale_vertical.to(1.0);
+
+                let opacity = self.animation_player.get_mut("opacity").unwrap();
+
+                opacity.set_delay(0);
+                opacity.to(1.0);
+            } else {
+                let scale = self.animation_player.get_mut("scale").unwrap();
+
+                scale.set_delay(400);
+                scale.to(0.0);
+
+                let scale_vertical = self.animation_player.get_mut("scale-vertical").unwrap();
+
+                scale_vertical.set_delay(0);
+                scale_vertical.to(0.0);
+
+                let opacity = self.animation_player.get_mut("opacity").unwrap();
+
+                opacity.set_delay(400);
+                opacity.to(0.0);
+            }
+
+            self.animation_player.play("scale");
+            self.animation_player.play("opacity");
+            self.animation_player.play("scale-vertical");
         }
 
         if self.keyboard.is_key_pressed_once(KeyCode::KeyN) {
@@ -385,7 +506,7 @@ impl State for GameLoop {
             match action {
                 Action::UpdateChunkMesh(origin) => {
                     if let Some(chunk) = self.game.compute_chunk_mesh_at(&origin) {
-                        self.voxel_renderer.set_chunk(display, chunk);
+                        self.voxel_renderer.set_chunk(display, origin, chunk);
                     }
                 }
             }
@@ -462,7 +583,10 @@ impl State for GameLoop {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn render(&mut self, _: &ActiveEventLoop, display: &WindowDisplay, delta: f32) {
+    fn render(&mut self, display: &WindowDisplay, delta: Duration) {
+        let draw_calls = self.debugging.draw_calls;
+        let vertices = self.debugging.vertices;
+
         self.debugging.draw_calls = 0;
         self.debugging.vertices = 0;
 
@@ -475,15 +599,18 @@ impl State for GameLoop {
 
         self.voxel_renderer.render(
             &mut frame,
+            &self.player.frustum,
             self.camera.matrix(),
             self.game.get_texture_atlas_sampled(),
             self.debugging.wireframe,
         );
 
-        let (draw_calls, vertices) = self.voxel_renderer.get_debug_info();
+        {
+            let (draw_calls, vertices) = self.voxel_renderer.get_debug_info();
 
-        self.debugging.draw_calls += draw_calls;
-        self.debugging.vertices += vertices;
+            self.debugging.draw_calls += draw_calls;
+            self.debugging.vertices += vertices;
+        }
 
         if self.debugging.draw_borders {
             self.shape_renderer.set_matrix(self.camera.matrix());
@@ -497,14 +624,14 @@ impl State for GameLoop {
             self.shape_renderer.set_default_matrix();
         }
 
-        if let Some(position) = self.player.looking_at
-            && let Some(model) = self.game.get_model_for(position)
+        if let Some(result) = self.player.looking_at
+            && let Some(model) = self.game.get_model_for(result.position)
         {
             self.shape_renderer.set_matrix(self.camera.matrix());
             self.shape_renderer.draw_lines(
                 &mut frame,
                 display,
-                &cube_outline(model.bounding_box + Point3D::from_raw(position)),
+                &cube_outline(model.bounding_box + Point3D::from_raw(result.position)),
                 &mut self.debugging.draw_calls,
                 &mut self.debugging.vertices,
             );
@@ -514,6 +641,126 @@ impl State for GameLoop {
         let animation_progress: f32 = self.animation_player.get_value("loading-screen").unwrap();
 
         let mut context = UiContext::new(self, display, &mut frame);
+
+        context.ui(|context, bounds| {
+            let hotbar_width = f32::from(INVENTORY_HOTBAR_SLOTS) * SLOT_SIZE;
+
+            let origin = Point2D::new(
+                (bounds.size.width / 2.0) - (hotbar_width / 2.0),
+                bounds.size.height - SLOT_SIZE - 8.0,
+            );
+
+            let offset = f32::from(context.game_loop.inventory_slot) * SLOT_SIZE;
+
+            context.draw_rect(
+                origin,
+                Size2D::new(hotbar_width, SLOT_SIZE),
+                Color::from_hsl(0.0, 0.0, 0.5),
+            );
+
+            context.draw_rect(
+                origin + Point2D::new(offset, 0.0).into(),
+                Size2D::new(SLOT_SIZE, SLOT_SIZE),
+                Color::from_hsl(0.0, 0.0, 0.8),
+            );
+
+            context.draw_rect(
+                origin + Point2D::new(4.0, 4.0).into() + Point2D::new(offset, 0.0).into(),
+                Size2D::new(SLOT_SIZE - 8.0, SLOT_SIZE - 8.0),
+                Color::from_hsl(0.0, 0.0, 0.5),
+            );
+        });
+
+        context.ui(|context, bounds| {
+            let opacity: f32 = context
+                .game_loop
+                .animation_player
+                .get_value("opacity")
+                .unwrap();
+
+            let scale: f32 = context
+                .game_loop
+                .animation_player
+                .get_value("scale")
+                .unwrap();
+
+            let scale_vertical: f32 = context
+                .game_loop
+                .animation_player
+                .get_value("scale-vertical")
+                .unwrap();
+
+            let screen_center = bounds.center();
+
+            let size = Size2D::new(bounds.size.width * 0.65, bounds.size.height * 0.4)
+                + (Size2D::new(0.0, 320.0) * scale_vertical);
+            let center = screen_center - (size / 2.0).to_vector();
+
+            context.add_transform(Mat4::from_scale_rotation_translation(
+                Vec3::from_array([scale; 3]),
+                Quat::IDENTITY,
+                screen_center.to_raw().extend(0.0) * (1.0 - scale),
+            ));
+
+            context.bounds(Rect2D::new(center, size), |context, _| {
+                context.fill(Color::from_hsl(130.0, 0.35, 0.25).with_alpha(opacity));
+
+                context.padding(2.0, |context, bounds| {
+                    context.clipped(bounds, |context, bounds| {
+                        let measured = context
+                            .measure_text("default_bold", "Inventory", 18.0)
+                            .unwrap();
+
+                        context.draw_text(
+                            bounds.origin,
+                            "default_bold",
+                            "Inventory",
+                            18.0,
+                            Color::WHITE,
+                        );
+
+                        let size = bounds.size - Size2D::new(0.0, measured.height + 4.0);
+                        let origin =
+                            bounds.origin + Size2D::new(0.0, measured.height + 2.0).to_vector();
+
+                        let inner_origin = origin + Point2D::new(2.0, 2.0).to_vector();
+                        let inner_size = size - Size2D::new(4.0, 4.0);
+
+                        let tile_count = 24usize;
+                        let tile_gap = 2.0f32;
+                        let tile_size = (inner_size
+                            - Size2D::new(
+                                (tile_count as f32 - 1.0) * tile_gap,
+                                (tile_count as f32 - 1.0) * tile_gap,
+                            ))
+                            / tile_count as f32;
+
+                        context.draw_rect(
+                            origin,
+                            size,
+                            Color::from_hsl(130.0, 0.5, 0.75).with_alpha(opacity),
+                        );
+
+                        for x in 0..tile_count {
+                            for y in 0..tile_count {
+                                context.draw_rect(
+                                    inner_origin
+                                        + Point2D::new(
+                                            (tile_gap + tile_size.width) * x as f32,
+                                            (tile_gap + tile_size.height) * y as f32,
+                                        )
+                                        .to_vector(),
+                                    tile_size,
+                                    Color::from_hsl(130.0, 0.25, 0.5).with_alpha(opacity),
+                                );
+                            }
+                        }
+                    });
+                });
+            });
+
+            context.remove_transform();
+        });
 
         {
             let chunk = ChunkManager::to_local(context.game_loop.player.position);
@@ -528,6 +775,8 @@ impl State for GameLoop {
             };
 
             let version = display.get_opengl_version();
+            let rendered_chunks = context.game_loop.voxel_renderer.rendered_chunks();
+            let total_chunks = context.game_loop.voxel_renderer.total_chunks();
 
             let text = format!(
                 "OpenGL {}.{}
@@ -539,8 +788,9 @@ Game Time: {hours:02}:{minutes:02}
 FPS: {:.0} ({:.2}ms)
 TPS: {}
 Looking at {}
-Draw calls: {}
-Rendered vertices: {}
+Draw calls: {draw_calls}
+Rendered chunks: {rendered_chunks} / {total_chunks}
+Rendered vertices: {vertices}
 Animation player:",
                 version.1,
                 version.2,
@@ -550,22 +800,24 @@ Animation player:",
                 context.game_loop.player.position,
                 chunk.x,
                 chunk.y,
-                1.0 / delta,
-                delta * 1000.0,
+                1.0 / delta.as_secs_f32(),
+                delta.as_secs_f32() * 1000.0,
                 context.game_loop.ticks,
                 context
                     .game_loop
                     .player
                     .looking_at
-                    .and_then(|position| context
+                    .and_then(|result| context
                         .game_loop
                         .game
                         .chunk_manager()
-                        .get_block(position)
-                        .map(|b| if b == 1 { "dirt" } else { "grass" }))
-                    .unwrap_or("nothing"),
-                context.game_loop.debugging.draw_calls,
-                context.game_loop.debugging.vertices,
+                        .get_block(result.position)
+                        .map(|b| format!(
+                            "{} (at {})",
+                            if b == 1 { "dirt" } else { "grass" },
+                            result.hit_side
+                        )))
+                    .unwrap_or_else(|| String::from("nothing")),
             );
 
             let text_size = context.measure_text("default", &text, 18.0).unwrap();
@@ -590,6 +842,8 @@ Animation player:",
                 });
             });
 
+            let mut offset = 0.0;
+
             for i in 0..context.game_loop.animation_player.len() {
                 let (finished, elapsed, duration, text) = {
                     let (name, animation) = context.game_loop.animation_player.get_at(i).unwrap();
@@ -611,8 +865,6 @@ Animation player:",
                 };
 
                 let text_size = context.measure_text("default", &text, 18.0).unwrap();
-
-                let offset = i as f32 * (text_size.height + 8.0);
 
                 context.bounds(
                     Rect2D::new(
@@ -648,6 +900,8 @@ Animation player:",
                         });
                     },
                 );
+
+                offset += text_size.height + 8.0;
             }
         }
 
@@ -725,10 +979,7 @@ async fn main() {
     //     }
     // }
 
-    let mut app = Application::<GameLoop>::default();
-
-    let event_loop = EventLoop::builder().build().unwrap();
-
-    event_loop.set_control_flow(ControlFlow::Poll);
-    event_loop.run_app(&mut app).unwrap();
+    Application::<GameLoop>::default()
+        .start()
+        .expect("failed to run app");
 }

@@ -8,6 +8,7 @@ meralus-animation = { workspace = true }
 meralus-world = { workspace = true }
 meralus-engine = { workspace = true }
 meralus-shared = { workspace = true, features = ["network"] }
+glium = { workspace = true }
 glam = { workspace = true }
 glamour = { workspace = true }
 noise = { workspace = true }

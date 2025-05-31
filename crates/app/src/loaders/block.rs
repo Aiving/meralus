@@ -5,14 +5,32 @@ use meralus_world::{BlockModel, Property, TexturePath, TextureRef};
 use super::{LoadingError, LoadingResult, ModelLoadingError, texture::TextureLoader};
 
 pub trait Block {
-    fn get_properties(&self) -> Vec<Property>;
+    fn id(&self) -> &'static str;
+
+    fn get_properties(&self) -> Vec<Property> {
+        Vec::new()
+    }
 }
 
 pub struct BlockManager {
     blocks: Vec<Box<dyn Block>>,
 }
 
+impl Default for BlockManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BlockManager {
+    pub const fn new() -> Self {
+        Self { blocks: Vec::new() }
+    }
+
+    pub fn get(&self, id: usize) -> Option<&dyn Block> {
+        self.blocks.get(id).map(|v| &**v)
+    }
+
     pub fn register<T: Block + 'static>(&mut self, block: T) {
         self.blocks.push(Box::new(block) as Box<dyn Block>);
     }

@@ -2,6 +2,7 @@
 
 in vec3 position;
 in vec4 color;
+in mat4 transform;
 
 out vec4 v_color;
 
@@ -16,6 +17,6 @@ vec4 toLinear(vec4 sRGB) {
 }
 
 void main() {
-  gl_Position = matrix * vec4(position, 1.0);
+  gl_Position = matrix * transform * vec4(position, 1.0);
   v_color = toLinear(color / 255.0);
 }

@@ -1,7 +1,6 @@
-use meralus_engine::{
-    WindowDisplay,
-    glium::{Frame, Rect},
-};
+use glam::Mat4;
+use glium::{Frame, Rect};
+use meralus_engine::WindowDisplay;
 use meralus_shared::{Color, Point2D, Rect2D, Size2D};
 
 use crate::{GameLoop, renderers::Rectangle};
@@ -13,6 +12,7 @@ struct Text {
     size: f32,
     color: Color,
     clip: Option<Rect2D>,
+    matrix: Option<Mat4>,
 }
 
 pub struct UiContext<'a> {
@@ -24,6 +24,7 @@ pub struct UiContext<'a> {
     rectangles: Vec<Rectangle>,
     texts: Vec<Text>,
     clip: Option<Rect2D>,
+    matrix: Option<Mat4>,
 }
 
 impl<'a> UiContext<'a> {
@@ -43,6 +44,7 @@ impl<'a> UiContext<'a> {
             rectangles: Vec::new(),
             texts: Vec::new(),
             clip: None,
+            matrix: None,
         }
     }
 
@@ -70,17 +72,23 @@ impl<'a> UiContext<'a> {
             size,
             color,
             clip: self.clip,
+            matrix: self.matrix,
         });
     }
 
+    pub const fn add_transform(&mut self, transform: Mat4) {
+        self.matrix.replace(transform);
+    }
+
+    pub const fn remove_transform(&mut self) {
+        self.matrix.take();
+    }
+
     pub fn draw_rect(&mut self, position: Point2D, size: Size2D, color: Color) {
-        self.rectangles.push(Rectangle::new(
-            position.x,
-            position.y,
-            size.width,
-            size.height,
-            color,
-        ));
+        self.rectangles.push(
+            Rectangle::new(position.x, position.y, size.width, size.height, color)
+                .with_matrix(self.matrix),
+        );
     }
 
     pub fn finish(self) {
@@ -95,7 +103,7 @@ impl<'a> UiContext<'a> {
         for text in self.texts {
             self.game_loop.text_renderer.render(
                 self.frame,
-                &self.game_loop.window_matrix,
+                &(self.game_loop.window_matrix * text.matrix.unwrap_or_default()),
                 text.position,
                 text.font,
                 text.data,
@@ -103,9 +111,10 @@ impl<'a> UiContext<'a> {
                 text.color,
                 text.clip.map(|area| Rect {
                     left: area.origin.x.floor() as u32,
-                    bottom: (area.origin.y).floor() as u32,
+                    bottom: (self.window_size.height - area.origin.y - area.size.height).floor()
+                        as u32,
                     width: area.size.width.floor() as u32,
-                    height: self.window_size.height.floor() as u32,
+                    height: area.size.height.floor() as u32,
                 }),
                 &mut self.game_loop.debugging.draw_calls,
             );
@@ -141,6 +150,7 @@ impl<'a> UiContext<'a> {
     pub fn padding<F: FnOnce(&mut UiContext, Rect2D)>(&mut self, value: f32, func: F) {
         self.bounds.origin += Point2D::ONE.to_vector() * value;
         self.bounds.size -= Size2D::ONE * value * 2.0;
+        self.bounds.size = self.bounds.size.max(Size2D::ZERO);
 
         func(self, self.bounds);
 
