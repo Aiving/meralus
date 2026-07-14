@@ -1,7 +1,21 @@
 base_water_color = "#66a1ff"
-base_foliage_color = "#46c546"
-base_sky_color = "#96a6c6"
+base_foliage_color = "#80ff84"
+base_sky_color = "#9cbdff"
+base_fog_color = "#c4c4c4"
 
 [biomes.desert]
-sky_color = "#dccc91"
-fog_color = "#dccc91"
+sky_color = "#f3ffc9"
+fog_color = "#ffffff"
+foliage_color = "#8cc546"
+
+[biomes.shrubland]
+foliage_color = "#88f24b"
+
+[biomes.forest]
+foliage_color = "#59f05e"
+
+[biomes.savanna]
+foliage_color = "#90f059"
+
+[biomes.seasonal-forest]
+foliage_color = "#70f059"	
